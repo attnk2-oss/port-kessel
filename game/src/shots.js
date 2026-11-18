@@ -1,79 +1,150 @@
-// The screenshot scenes behind ?shot=start|play|end. Each one plays the real rules forward from a
-// fresh world for a fixed number of steps, steered by a simple autopilot (look ahead each way the
-// paddle could move, keep clear of blocks, chase the lowest coin when that is safe), so the frame
-// is what a short game really looks like and the same seed always gives the same frame.
-import { FIELD, PLAYER, STEP } from './config.js';
-import { EVENT_OVER, KIND_BLOCK } from './world.js';
-import { SCREEN_OVER, SCREEN_PLAY, SCREEN_TITLE } from './render.js';
+// Deterministic staged screenshots. Each scene starts from a fresh world, places Vale and real
+// traffic, then advances the actual 60 Hz simulation for a fixed number of steps. Physics,
+// traffic decisions and police movement are not faked after staging: the renderer receives the
+// same state a player would see. The autopilot only supplies ordinary keyboard input.
 
-const START_SECONDS = 5;
-const PLAY_SECONDS = 26;
-const END_LIMIT_SECONDS = 600;
-/**
- * How far ahead, in seconds, the autopilot checks each way it could move: the play scene's pilot
- * looks well ahead and keeps all its lives; the end scene's looks only a moment ahead, so it is
- * caught out once the blocks speed up, as a hurried player is.
- */
-const HORIZON_PLAY = 0.7;
-const HORIZON_END = 0.25;
-const SAMPLE = 1 / 30;
-const DIRECTIONS = [0, -1, 1];
-/** Extra room, each side, it keeps between the paddle and a block. */
-const MARGIN = 10;
+import { STEP } from './config.js';
+import { SCREEN } from './render.js';
 
-/** Seconds until moving in `direction` (-1, 0, 1) runs the paddle into a block; Infinity when it never does. */
-function timeToHit(state, direction, horizon) {
-  const player = state.player;
-  for (let t = SAMPLE; t <= horizon; t += SAMPLE) {
-    const x = Math.min(FIELD.width - player.width, Math.max(0, player.x + direction * PLAYER.speed * t));
-    for (let index = 0; index < state.items.length; index += 1) {
-      const item = state.items[index];
-      if (!item.active || item.kind !== KIND_BLOCK) continue;
-      const y = item.y + item.speed * t;
-      if (y + item.height > player.y && y < player.y + player.height && item.x < x + player.width + MARGIN && item.x + item.width > x - MARGIN) return t;
-    }
-  }
-  return Infinity;
+function makeInput(overrides = {}) {
+  return {
+    axis: { x: 0, y: 0 },
+    sprint: false,
+    mouseWorld: { x: 640, y: 360 },
+    firing: false,
+    up: false,
+    brake: false,
+    left: false,
+    right: false,
+    aim: true,
+    ...overrides,
+  };
 }
 
-/** Of the safe ways to move, the one toward the lowest coin (or the centre); else the one that is hit last. */
-function autopilot(state, horizon) {
-  const player = state.player;
-  let coin = null;
-  for (let index = 0; index < state.items.length; index += 1) {
-    const item = state.items[index];
-    if (item.active && item.kind !== KIND_BLOCK && (coin === null || item.y > coin.y)) coin = item;
-  }
-  const target = coin === null ? FIELD.width / 2 : coin.x + coin.width / 2;
-  const centre = player.x + player.width / 2;
-  const wanted = target > centre + 8 ? 1 : target < centre - 8 ? -1 : 0;
-  let best = wanted;
-  let bestTime = timeToHit(state, wanted, horizon);
-  for (let index = 0; index < DIRECTIONS.length && bestTime !== Infinity; index += 1) {
-    const time = timeToHit(state, DIRECTIONS[index], horizon);
-    if (time > bestTime) {
-      bestTime = time;
-      best = DIRECTIONS[index];
-    }
-  }
-  return best;
+function settle(world, seconds, input) {
+  const steps = Math.round(seconds / STEP);
+  for (let index = 0; index < steps; index += 1) world.step(STEP, input);
 }
 
-/**
- * Set `world` to the named scene (start, play or end; any other name is start) and return the
- * screen to draw over it and the best score to show.
- */
+function faceMouse(state, angle) {
+  state.crosshair.x = 640 + Math.cos(angle) * 150;
+  state.crosshair.y = 360 + Math.sin(angle) * 150;
+}
+
 export function stageShot(name, world) {
+  const state = world.state;
   world.reset();
-  if (name !== 'play' && name !== 'end') {
-    for (let index = 0; index < START_SECONDS / STEP; index += 1) world.step(STEP, 0, true);
-    return { screen: SCREEN_TITLE, best: 0 };
+  state.message = '';
+  state.messageTimer = 0;
+  state.paused = false;
+  state.audioMuted = false;
+  state.titleIndex = 0;
+
+  if (name === 'street') {
+    world.teleport(1715, 1798);
+    state.player.angle = -0.35;
+    state.weapon = 'pistol';
+    state.pistolRounds = 22;
+    state.money = 1840;
+    world.setMissionDemo(0);
+    state.objective = 'Walk the Neon Strip. Press F beside a car to take it.';
+    state.missionMarker = null;
+    state.hudDialogue = { speaker: 'MARROW', text: 'The Strip is loud tonight. Keep your collar up and your eyes on the street.', timer: 30 };
+    faceMouse(state, 0.15);
+    const player = state.player;
+    state.alarm = 0;
+    world.spawnCarAt('kestrel', 1840, 1815, Math.PI, true);
+    world.spawnCarAt('bream', 1560, 1840, 0, true);
+    world.spawnCarAt('kestrel', 2140, 1815, Math.PI, true);
+    world.spawnCarAt('kestrel', 1460, 1720, 0, false);
+    for (let index = 0; index < 16; index += 1) {
+      const ped = world.spawnPedAt(1460 + (index % 8) * 31, 1650 + Math.floor(index / 8) * 38, 'walk');
+      ped.angle = 0.1;
+      ped.target = { x: ped.x + 140, y: ped.y + 30 };
+      ped.umbrella = index % 3 === 0;
+    }
+    world.spawnPedAt(1570, 1935, 'flee');
+    settle(world, 2.6, makeInput({ axis: { x: Math.cos(0.3), y: Math.sin(0.3) }, mouseWorld: { x: player.x + 240, y: player.y - 40 } }));
+    state.alarm = 0;
+    state.camera.x += 62;
+    state.camera.y += 10;
+    state.shake = 0;
+    return { screen: SCREEN.play, world };
   }
-  const limit = name === 'end' ? END_LIMIT_SECONDS : PLAY_SECONDS;
-  const horizon = name === 'end' ? HORIZON_END : HORIZON_PLAY;
-  for (let index = 0; index < limit / STEP; index += 1) {
-    if (world.step(STEP, autopilot(world.state, horizon), false) & EVENT_OVER) break;
+
+  if (name === 'drive') {
+    const car = world.setVehicle('kestrel', 1110, 1566, 0);
+    car.x = 1280; car.y = 1566; car.angle = 0;
+    car.speed = 168;
+    car.health = 142;
+    state.money = 2380;
+    state.wanted = 1;
+    state.heat = 0.3;
+    state.weapon = 'pistol';
+    state.pistolRounds = 31;
+    state.hudDialogue = { speaker: 'MARROW', text: 'The Bream is at Salt Market. Do not stop for the lights, Vale. Stopping is how they catch you.', timer: 30 };
+    state.objective = 'A BREAM IN THE MARROW · Reach Salt Market';
+    state.mission = 1;
+    state.missionStep = 0;
+    state.missionMarker = { x: 866, y: 2266, r: 72, color: '#ffcf4a' };
+    for (let index = 0; index < 5; index += 1) {
+      const carAhead = world.spawnCarAt(index % 2 ? 'bream' : 'kestrel', 1550 + index * 92, 1545, 0, true);
+      carAhead.speed = 44;
+    }
+    world.spawnCarAt('kestrel', 1540, 1587, 0, true);
+    world.spawnCarAt('bream', 1320, 1608, 0, true);
+    state.crosshair.x = 760;
+    state.crosshair.y = 330;
+    settle(world, 0.55, makeInput({ up: true, mouseWorld: { x: 1000, y: 1000 } }));
+    state.player.vehicle.speed = 176;
+    state.camera.x = state.player.vehicle.x + 120;
+    state.camera.y = state.player.vehicle.y + 92;
+    state.shake = 0;
+    return { screen: SCREEN.play, world };
   }
-  const over = world.state.lives === 0;
-  return { screen: over ? SCREEN_OVER : SCREEN_PLAY, best: world.state.score };
+
+  if (name === 'chase') {
+    world.teleport(1730, 1566);
+    state.player.angle = Math.PI;
+    state.weapon = 'pistol';
+    state.pistolRounds = 18;
+    state.money = 3260;
+    world.triggerWanted(3);
+    world.addPoliceNear(1730, 1566, 3);
+    world.addPoliceNear(1620, 1690, 2);
+    state.outOfSight = 0;
+    state.policeSight = 1;
+    state.heat = 0.6;
+    state.hudDialogue = { speaker: 'OKONKWO', text: 'Vale! You are not a rumour any more. You are a headline.', timer: 30 };
+    state.objective = 'THREE-STAR NIGHT · Hold the heat for 28 seconds';
+    state.mission = 2;
+    state.missionStep = 1;
+    state.missionMarker = { x: 820, y: 1566, r: 74, color: '#ffcf4a' };
+    faceMouse(state, Math.PI + 0.25);
+    settle(world, 1.1, makeInput({ axis: { x: -0.4, y: 0.4 }, mouseWorld: { x: 1550, y: 1500 } }));
+    state.wanted = 3;
+    state.policeSight = 1;
+    state.camera.x = state.player.x + 50;
+    state.camera.y = state.player.y + 8;
+    state.shake = 2.2;
+    return { screen: SCREEN.play, world };
+  }
+
+  // The job: Marrow's first handoff under way, with the gold objective live.
+  world.teleport(1780, 1566);
+  state.player.angle = -0.65;
+  state.weapon = 'pistol';
+  state.pistolRounds = 29;
+  state.money = 1460;
+  world.setMissionDemo(0);
+  state.missionStep = 0;
+  state.objective = 'Meet Marrow at the Night Tide diner';
+  state.missionMarker = { x: 2016, y: 1566, r: 54, color: '#ffcf4a' };
+  state.hudDialogue = { speaker: 'VALE', text: 'Marrow says Pell is walking the rain line. Take the ledger. Leave the coat. Meet him at the diner.', timer: 30 };
+  faceMouse(state, -0.6);
+  settle(world, 1.2, makeInput({ axis: { x: 0.1, y: 0.04 }, mouseWorld: { x: 2016, y: 1566 } }));
+  state.camera.x += 34;
+  state.camera.y -= 10;
+  state.shake = 0;
+  return { screen: SCREEN.play, world };
 }

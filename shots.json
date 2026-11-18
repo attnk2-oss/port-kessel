@@ -1,5 +1,6 @@
 [
-  { "name": "1-start.jpg", "query": "?shot=start&seed=1" },
-  { "name": "2-play.jpg", "query": "?shot=play&seed=1" },
-  { "name": "3-end.jpg", "query": "?shot=end&seed=1" }
+  { "name": "1-port-kessel.png", "query": "?shot=street&seed=7" },
+  { "name": "2-the-drive.png", "query": "?shot=drive&seed=7" },
+  { "name": "3-three-stars.png", "query": "?shot=chase&seed=7" },
+  { "name": "4-the-job.png", "query": "?shot=mission&seed=7" }
 ]
