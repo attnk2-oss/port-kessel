@@ -69,7 +69,7 @@ export const WANTED = Object.freeze({
 });
 
 export const TRAFFIC = Object.freeze({
-  count: 22,
+  count: 38,
   laneOffset: 21,
   cruise: 76,
   accel: 54,
@@ -81,7 +81,7 @@ export const TRAFFIC = Object.freeze({
 });
 
 export const PEDESTRIAN = Object.freeze({
-  count: 34,
+  count: 58,
   walkSpeed: 34,
   fleeSpeed: 88,
   radius: 7,

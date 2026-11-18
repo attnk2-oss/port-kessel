@@ -185,6 +185,37 @@ export function createRenderer(canvas) {
     }
   }
 
+  function drawWetReflections(city, state) {
+    const camX = state.camera.x;
+    const camY = state.camera.y;
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
+    const pools = [
+      [camX - 260, camY + 70, '#ff3e8f', 0.12, 250, 38],
+      [camX - 120, camY + 150, '#39e9ed', 0.1, 330, 26],
+      [camX + 190, camY + 120, '#ffb24e', 0.08, 280, 32],
+      [camX + 360, camY - 40, '#9d7bff', 0.1, 220, 22],
+      [camX - 380, camY - 150, '#39e9ed', 0.07, 300, 24],
+      [camX + 80, camY + 220, '#ff3e8f', 0.08, 240, 20],
+    ];
+    for (let index = 0; index < pools.length; index += 1) {
+      const [x, y, colour, alpha, width, height] = pools[index];
+      const flicker = 0.82 + Math.sin(time * 1.8 + index * 1.7) * 0.18;
+      const gradient = ctx.createLinearGradient(x, y - height, x, y + height);
+      gradient.addColorStop(0, 'rgba(0,0,0,0)');
+      gradient.addColorStop(0.45, colour);
+      gradient.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.globalAlpha = alpha * flicker;
+      ctx.fillStyle = gradient;
+      ctx.fillRect(x - width / 2, y - height, width, height * 2);
+      ctx.globalAlpha = alpha * 0.42 * flicker;
+      for (let stripe = 0; stripe < 4; stripe += 1) {
+        ctx.fillRect(x - width * 0.22 + stripe * width * 0.15, y - height * 0.3, 2, height * (0.9 + stripe * 0.12));
+      }
+    }
+    ctx.restore();
+  }
+
   function drawDock(city) {
     const dock = city.dock;
     ctx.fillStyle = '#1b2931';
@@ -367,6 +398,24 @@ export function createRenderer(canvas) {
   }
 
   function drawTrafficCar(car, isPlayer = false) {
+    if (!car.destroyed && Math.abs(car.speed) > 42) {
+      const travel = Math.abs(car.speed);
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.strokeStyle = car.type === 'tern' ? 'rgba(164,213,255,0.26)' : 'rgba(211,240,239,0.2)';
+      ctx.lineWidth = 1.2;
+      for (let streak = 0; streak < 3; streak += 1) {
+        const side = (streak - 1) * car.width * 0.27;
+        const length = 18 + travel * 0.19 + streak * 7;
+        const x = car.x - Math.cos(car.angle) * (car.length * 0.55 + streak * 5) + Math.cos(car.angle + Math.PI / 2) * side;
+        const y = car.y - Math.sin(car.angle) * (car.length * 0.55 + streak * 5) + Math.sin(car.angle + Math.PI / 2) * side;
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(x - Math.cos(car.angle) * length, y - Math.sin(car.angle) * length);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
     if (car.destroyed) {
       ctx.save(); ctx.translate(car.x, car.y); ctx.rotate(car.angle);
       ctx.fillStyle = '#15191a'; ctx.fillRect(-car.length / 2, -car.width / 2, car.length, car.width);
@@ -431,6 +480,15 @@ export function createRenderer(canvas) {
     ctx.lineTo(x + beamLength, y);
     ctx.closePath();
     ctx.fill();
+    ctx.strokeStyle = 'rgba(228,246,236,0.21)';
+    ctx.lineWidth = 1;
+    for (let index = 0; index < 6; index += 1) {
+      const spread = (index / 5 - 0.5) * 0.34;
+      const near = beamLength * (0.22 + (index % 3) * 0.17);
+      const cx = x + Math.cos(angle + spread) * near;
+      const cy = y + Math.sin(angle + spread) * near;
+      ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx - 2.5, cy + 15); ctx.stroke();
+    }
     ctx.restore();
     // A narrow visible filament keeps each cone anchored to a pair of real headlamps.
     ctx.strokeStyle = 'rgba(255, 239, 187, 0.66)';
@@ -522,6 +580,35 @@ export function createRenderer(canvas) {
     }
   }
 
+  function drawPoliceGlow(unit) {
+    if (unit.destroyed || unit.kind !== 'police') return;
+    const phase = Math.sin(time * 10 + (unit.sirenPhase || 0));
+    const red = phase > 0;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    // Two separate pools under every cruiser: one red, one blue. Even a frozen frame shows
+    // both colours on the wet road, and the phase still drives the alternating pulse in play.
+    const side = unit.angle + Math.PI / 2;
+    for (let lamp = 0; lamp < 2; lamp += 1) {
+      const sign = lamp === 0 ? -1 : 1;
+      const warm = lamp === 0 ? red : !red;
+      const lx = unit.x + Math.cos(side) * sign * 22;
+      const ly = unit.y + Math.sin(side) * sign * 22;
+      const glow = ctx.createRadialGradient(lx, ly, 3, lx, ly, 92);
+      glow.addColorStop(0, warm ? 'rgba(255,52,78,0.55)' : 'rgba(56,142,255,0.55)');
+      glow.addColorStop(0.35, warm ? 'rgba(255,52,78,0.2)' : 'rgba(56,142,255,0.2)');
+      glow.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = glow;
+      ctx.beginPath(); ctx.ellipse(lx, ly, 108, 64, unit.angle, 0, Math.PI * 2); ctx.fill();
+    }
+    const s = ctx.createRadialGradient(unit.x, unit.y, 1, unit.x, unit.y, 42);
+    s.addColorStop(0, 'rgba(255,245,235,0.38)');
+    s.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = s;
+    ctx.beginPath(); ctx.arc(unit.x, unit.y, 42, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+
   function drawPolice(unit) {
     if (unit.destroyed) {
       if (unit.kind === 'police') drawTrafficCar(unit, false);
@@ -560,6 +647,14 @@ export function createRenderer(canvas) {
       ctx.beginPath(); ctx.ellipse(0, 0, 6.6, 11.6, 0, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = '#d6b092';
       ctx.beginPath(); ctx.arc(0, -10, 3.8, 0, Math.PI * 2); ctx.fill();
+      if (actor.kind === 'courier') {
+        const pulse = (Math.sin(time * 4.2) + 1) * 0.5;
+        ctx.strokeStyle = `rgba(255,207,74,${0.65 + pulse * 0.3})`;
+        ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(0, 0, 20 + pulse * 5, 0, Math.PI * 2); ctx.stroke();
+        ctx.fillStyle = '#ffcf4a';
+        ctx.beginPath(); ctx.moveTo(0, -31); ctx.lineTo(-4, -25); ctx.lineTo(4, -25); ctx.closePath(); ctx.fill();
+      }
       if (actor.kind === 'boss') {
         ctx.strokeStyle = '#ffcf4a'; ctx.lineWidth = 2;
         ctx.beginPath(); ctx.arc(0, 0, 16, 0, Math.PI * 2); ctx.stroke();
@@ -582,9 +677,40 @@ export function createRenderer(canvas) {
     }
     for (let index = 0; index < state.particles.length; index += 1) {
       const p = state.particles[index];
-      ctx.globalAlpha = clamp(p.life * 2, 0, 1);
+      const k = clamp(p.life * 1.8, 0, 1);
+      ctx.globalAlpha = k;
       ctx.fillStyle = p.colour;
-      ctx.fillRect(p.x, p.y, p.size, p.size);
+      if (p.kind === 'debris') {
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.rotate((p.spin || 0) + time * 2.3);
+        ctx.fillRect(-p.size * 0.7, -p.size * 0.24, p.size * 1.4, p.size * 0.48);
+        ctx.restore();
+      } else {
+        ctx.fillRect(p.x - p.size * 0.5, p.y - p.size * 0.5, p.size, p.size);
+        if (p.size > 2.5) {
+          ctx.strokeStyle = p.colour;
+          ctx.lineWidth = 0.7;
+          ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p.x - p.vx * 0.026, p.y - p.vy * 0.026); ctx.stroke();
+        }
+      }
+    }
+    // A muzzle star is deliberately oversized: at 1280x720 a single 3px dot disappears.
+    for (let index = 0; index < state.muzzles.length; index += 1) {
+      const flash = state.muzzles[index];
+      const k = clamp(flash.life / flash.max, 0, 1);
+      ctx.globalAlpha = k;
+      ctx.save();
+      ctx.translate(flash.x, flash.y);
+      ctx.rotate(flash.angle);
+      ctx.fillStyle = flash.owner === 'player' ? '#fff3ac' : '#ffd0d7';
+      ctx.beginPath();
+      ctx.moveTo(36, 0); ctx.lineTo(9, -7); ctx.lineTo(0, -2.5); ctx.lineTo(-6, 0);
+      ctx.lineTo(0, 2.5); ctx.lineTo(9, 7); ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = flash.owner === 'player' ? '#ffbf45' : '#ff536e';
+      ctx.lineWidth = 1.2;
+      ctx.beginPath(); ctx.moveTo(1, 0); ctx.lineTo(24, -14); ctx.moveTo(1, 0); ctx.lineTo(24, 14); ctx.stroke();
+      ctx.restore();
     }
     ctx.restore();
   }
@@ -608,6 +734,50 @@ export function createRenderer(canvas) {
     ctx.lineTo(marker.x - 8, marker.y - marker.r - 34 + pulse * 4);
     ctx.lineTo(marker.x + 8, marker.y - marker.r - 34 + pulse * 4);
     ctx.closePath(); ctx.fill();
+    ctx.restore();
+  }
+
+  function drawGroundEffects(state) {
+    // Rubber laid down by drifts, painted before every car so it reads as asphalt history.
+    ctx.save();
+    for (let index = 0; index < state.skids.length; index += 1) {
+      const skid = state.skids[index];
+      const alpha = clamp(skid.life / skid.max, 0, 1) * 0.94;
+      ctx.strokeStyle = `rgba(3,5,8,${alpha})`;
+      ctx.lineWidth = skid.width * 1.7;
+      ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(skid.x1, skid.y1); ctx.lineTo(skid.x2, skid.y2); ctx.stroke();
+    }
+    ctx.restore();
+
+    // Rain impacts: bright expanding rings and tiny crowns on the wet road.
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    for (let index = 0; index < 46; index += 1) {
+      const x = state.camera.x - 560 + ((index * 193.7 + time * 38) % 1120);
+      const y = state.camera.y - 350 + ((index * 97.3 + time * 61 + (index % 5) * 29) % 700);
+      if (!state.city.isRoad(x, y)) continue;
+      const phase = (time * 1.7 + index * 0.37) % 1;
+      const r = 2 + phase * 9;
+      ctx.strokeStyle = `rgba(178,228,235,${(1 - phase) * 0.42})`;
+      ctx.lineWidth = 0.9;
+      ctx.beginPath(); ctx.ellipse(x, y, r, r * 0.45, 0, 0, Math.PI * 2); ctx.stroke();
+    }
+    ctx.restore();
+
+    for (let index = 0; index < state.police.length; index += 1) drawPoliceGlow(state.police[index]);
+  }
+
+  function drawExhaust(state) {
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
+    for (let index = 0; index < state.exhaust.length; index += 1) {
+      const puff = state.exhaust[index];
+      const k = clamp(puff.life / puff.max, 0, 1);
+      ctx.globalAlpha = k * 0.34;
+      ctx.fillStyle = puff.tint;
+      ctx.beginPath(); ctx.arc(puff.x, puff.y, puff.size, 0, Math.PI * 2); ctx.fill();
+    }
     ctx.restore();
   }
 
@@ -656,13 +826,23 @@ export function createRenderer(canvas) {
     worldTransform(state);
     drawWater(city);
     drawRoads(city);
+    drawWetReflections(city, state);
     drawDock(city);
     drawParks(city);
     for (let index = 0; index < city.buildings.length; index += 1) drawBuilding(city.buildings[index], state);
     for (let index = 0; index < city.signs.length; index += 1) drawSign(city.signs[index]);
     drawStreetlights(city, state);
+    drawGroundEffects(state);
+    drawExhaust(state);
     drawActors(state);
-    for (let index = 0; index < state.peds.length; index += 1) drawPed(state.peds[index]);
+    const px = state.player.vehicle ? state.player.vehicle.x : state.player.x;
+    const py = state.player.vehicle ? state.player.vehicle.y : state.player.y;
+    for (let index = 0; index < state.peds.length; index += 1) {
+      const ped = state.peds[index];
+      if (ped === state.player || ped.x === state.player.x && ped.y === state.player.y) continue;
+      if (Math.abs(ped.x - px) < 24 && Math.abs(ped.y - py) < 24) continue;
+      drawPed(ped);
+    }
     for (let index = 0; index < state.traffic.length; index += 1) {
       const car = state.traffic[index];
       drawTrafficCar(car, car === state.player.vehicle);
@@ -822,6 +1002,12 @@ export function createRenderer(canvas) {
     panel(576, FIELD.height - 84, 660, 58, 'rgba(5,10,18,0.8)', 'rgba(255,207,74,0.27)');
     text('OBJECTIVE', 596, FIELD.height - 62, 9, PALETTE.marker, 'left', 700);
     text(objective.length > 82 ? objective.slice(0, 79) + '...' : objective, 596, FIELD.height - 40, 15, '#eaf8f9', 'left', 600);
+    if (state.missionMarker) {
+      const px = state.player.vehicle ? state.player.vehicle.x : state.player.x;
+      const py = state.player.vehicle ? state.player.vehicle.y : state.player.y;
+      const metres = Math.round(Math.hypot(state.missionMarker.x - px, state.missionMarker.y - py));
+      text(`${metres} M`, 1108, FIELD.height - 62, 11, '#ffdf9b', 'right', 700);
+    }
     if (state.mission !== null && state.mission < 5) {
       text(`${state.mission + 1}/5`, 1214, FIELD.height - 62, 11, PALETTE.marker, 'right', 700);
     }

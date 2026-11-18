@@ -81,7 +81,7 @@ export function createPolice(city, random) {
     const wantedAngle = Math.atan2(dy, dx);
     const turnRate = 1.6 + state.wanted * 0.18;
     cruiser.angle += clamp(angleDelta(cruiser.angle, wantedAngle), -turnRate * dt, turnRate * dt);
-    const desiredSpeed = distance > 700 ? 150 : distance > 260 ? 135 : distance < 90 ? 70 : 112;
+    const desiredSpeed = distance > 700 ? 150 : distance > 260 ? 135 : distance < 90 ? 46 : 112;
     cruiser.speed += clamp(desiredSpeed - cruiser.speed, -130 * dt, 95 * dt);
     cruiser.speed = clamp(cruiser.speed, 0, VEHICLE.tern.maxSpeed);
     cruiser.x += Math.cos(cruiser.angle) * cruiser.speed * dt;
@@ -90,6 +90,7 @@ export function createPolice(city, random) {
     cruiser.fireTimer -= dt;
     if (state.wanted >= 2 && cruiser.fireTimer <= 0 && distance < 455) {
       cruiser.fireTimer = 0.95 + random() * (1.5 - state.wanted * 0.12);
+      state.muzzles.push({ x: cruiser.x, y: cruiser.y, angle: Math.atan2(targetY - cruiser.y, targetX - cruiser.x), owner: 'enemy', life: 0.11, max: 0.11 });
       state.bullets.push({ x: cruiser.x, y: cruiser.y, vx: Math.cos(Math.atan2(targetY - cruiser.y, targetX - cruiser.x)) * 560, vy: Math.sin(Math.atan2(targetY - cruiser.y, targetX - cruiser.x)) * 560, life: 1, damage: 11 + state.wanted * 2, owner: 'police', angle: cruiser.angle, trail: 0 });
       state.policeShots += 1;
     }
@@ -120,6 +121,7 @@ export function createPolice(city, random) {
     cop.fireTimer -= dt;
     if (cop.fireTimer <= 0 && distance < 360) {
       cop.fireTimer = 1.25 + random() * (1.8 - state.wanted * 0.12);
+      state.muzzles.push({ x: cop.x, y: cop.y, angle: Math.atan2(py - cop.y, px - cop.x), owner: 'enemy', life: 0.11, max: 0.11 });
       state.bullets.push({ x: cop.x, y: cop.y, vx: Math.cos(Math.atan2(py - cop.y, px - cop.x)) * 500, vy: Math.sin(Math.atan2(py - cop.y, px - cop.x)) * 500, life: 1, damage: 9 + state.wanted, owner: 'police', angle: cop.angle, trail: 0 });
       state.policeShots += 1;
     }

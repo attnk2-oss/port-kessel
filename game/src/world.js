@@ -53,6 +53,9 @@ export function createWorld(seed) {
     police: [],
     bullets: [],
     particles: [],
+    skids: [],
+    exhaust: [],
+    muzzles: [],
     missionActors: [],
     corpsePaths: [],
     wanted: 0,
@@ -135,6 +138,7 @@ export function createWorld(seed) {
     player.invulnerable = 1.2; player.dead = false; player.reload = 0;
     state.wanted = 0; state.heat = 0; state.policeSight = 0; state.lastCrime = 0;
     state.police.length = 0; state.bullets.length = 0; state.particles.length = 0;
+    state.skids.length = 0; state.exhaust.length = 0; state.muzzles.length = 0;
     state.peds.length = 0; state.missionActors.length = 0;
     state.money = 120; state.mission = null; state.missionStep = 0;
     state.missionComplete = false; state.missionsDone = 0; state.nextMissionTimer = 0;
@@ -254,6 +258,37 @@ export function createWorld(seed) {
     });
   }
 
+  function addMuzzle(x, y, angle, owner) {
+    state.muzzles.push({ x, y, angle, owner, life: 0.11, max: 0.11 });
+    if (state.muzzles.length > 48) state.muzzles.shift();
+  }
+
+  function addExhaust(x, y, angle, speed, tint = '#a7bdc2') {
+    if (state.exhaust.length > 150) state.exhaust.shift();
+    state.exhaust.push({
+      x: x + (Math.random() - 0.5) * 9,
+      y: y + (Math.random() - 0.5) * 9,
+      vx: -Math.cos(angle) * (14 + Math.random() * 38) - Math.sin(angle) * (Math.random() - 0.5) * 15,
+      vy: -Math.sin(angle) * (14 + Math.random() * 38) + Math.cos(angle) * (Math.random() - 0.5) * 15,
+      life: 0.32 + Math.random() * 0.36, max: 0.68,
+      size: 3 + Math.random() * 4 + Math.min(4, Math.abs(speed) * 0.018), tint,
+    });
+  }
+
+  function addSkid(x1, y1, x2, y2, width = 2.2, strength = 1) {
+    if (state.skids.length > 360) state.skids.shift();
+    state.skids.push({ x1, y1, x2, y2, width, life: 0.8 + strength * 0.75, max: 1.55, strength });
+  }
+
+  function rearWheel(car, side) {
+    const px = car.x - Math.cos(car.angle) * car.length * 0.34;
+    const py = car.y - Math.sin(car.angle) * car.length * 0.34;
+    return {
+      x: px + Math.cos(car.angle + Math.PI / 2) * car.width * 0.33 * side,
+      y: py + Math.sin(car.angle + Math.PI / 2) * car.width * 0.33 * side,
+    };
+  }
+
   function shoot(angle) {
     if (player.dead) return;
     if (state.weapon === 'pistol') {
@@ -273,6 +308,7 @@ export function createWorld(seed) {
       player.reload = PLAYER.pistolCooldown;
       state.shake = Math.max(state.shake, 0.8);
       state.flash = 0.04;
+      addMuzzle(player.vehicle ? player.vehicle.x : player.x, player.vehicle ? player.vehicle.y : player.y, angle, 'player');
       audio('shot', { police: false });
       state.alarm = Math.max(state.alarm, 2.4);
       raiseWanted(0.17);
@@ -322,7 +358,8 @@ export function createWorld(seed) {
         target.driver = false;
         state.policeKilled += 1;
         raiseWanted(0.8);
-        burst(target.x, target.y, '#ffb24e', 14);
+        burst(target.x, target.y, '#ffb24e', 12);
+        burst(target.x, target.y, '#6e6252', 12, 'debris');
         audio('explosion');
       }
       return;
@@ -349,12 +386,18 @@ export function createWorld(seed) {
     }
   }
 
-  function burst(x, y, colour, count) {
+  function burst(x, y, colour, count, kind = 'spark') {
     for (let index = 0; index < count; index += 1) {
       const angle = Math.random() * Math.PI * 2;
-      const speed = 25 + Math.random() * 95;
-      state.particles.push({ x, y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, life: 0.25 + Math.random() * 0.55, colour, size: 1.5 + Math.random() * 2.4 });
+      const speed = (kind === 'debris' ? 45 : 35) + Math.random() * (kind === 'debris' ? 150 : 115);
+      state.particles.push({
+        x, y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed,
+        life: 0.3 + Math.random() * 0.7, max: 1,
+        colour, size: kind === 'debris' ? 2.6 + Math.random() * 4 : 1.2 + Math.random() * 2.4,
+        kind, spin: Math.random() * Math.PI * 2,
+      });
     }
+    if (state.particles.length > 260) state.particles.splice(0, state.particles.length - 260);
   }
 
   function raiseWanted(amount) {
@@ -524,9 +567,28 @@ export function createWorld(seed) {
         car.health -= damage;
         state.shake = Math.max(state.shake, Math.min(9, damageSpeed * 0.035));
         audio('impact', { strength: damageSpeed / 150 });
-        burst(car.x, car.y, '#ffb24e', 5);
+        burst(car.x, car.y, '#ffcf6c', 12);
+        burst(car.x, car.y, '#74675a', 9, 'debris');
       }
       car.speed *= -0.18;
+    }
+    const slip = Math.abs(car.speed) > 58 && (Math.abs(steer) > 0 || input.brake || Math.abs(car.speed) > 205);
+    if (slip) {
+      state.skidTimer = (state.skidTimer || 0) + dt;
+      const tail = rearWheel(car, 0);
+      const tail2 = rearWheel(car, 1);
+      const back = Math.abs(car.speed) * dt * 0.92 + 1.5;
+      addSkid(tail.x, tail.y, tail.x - Math.cos(car.angle) * back, tail.y - Math.sin(car.angle) * back, 2.4, 1);
+      addSkid(tail2.x, tail2.y, tail2.x - Math.cos(car.angle) * back, tail2.y - Math.sin(car.angle) * back, 2.4, 1);
+      if (Math.abs(car.speed) > 120 && Math.random() < 0.14) burst(tail.x, tail.y, '#7f9290', 1, 'spark');
+    }
+    if (Math.abs(car.speed) > 28) {
+      state.exhaustTimer = (state.exhaustTimer || 0) + dt;
+      if (state.exhaustTimer > 0.035) {
+        state.exhaustTimer = 0;
+        const tail = rearWheel(car, Math.random() < 0.5 ? -1 : 1);
+        addExhaust(tail.x, tail.y, car.angle, car.speed, car.type === 'tern' ? '#8eb1b7' : '#a7bdc2');
+      }
     }
     state.driveDistance += Math.abs(car.speed) * dt;
     state.currentVehicleName = spec.name;
@@ -563,6 +625,8 @@ export function createWorld(seed) {
         car.speed *= 0.56;
         state.shake = Math.max(state.shake, Math.min(8, damageSpeed * 0.03));
         audio('impact', { strength: damageSpeed / 160 });
+        burst((car.x + other.x) / 2, (car.y + other.y) / 2, '#ffcc71', 9);
+        burst(other.x, other.y, '#55636a', 7, 'debris');
         break;
       }
     }
@@ -574,7 +638,8 @@ export function createWorld(seed) {
       player.x = car.x + Math.cos(car.angle + Math.PI / 2) * 26;
       player.y = car.y + Math.sin(car.angle + Math.PI / 2) * 26;
       state.shake = 10;
-      burst(car.x, car.y, '#ffb24e', 22);
+      burst(car.x, car.y, '#ffb24e', 24);
+      burst(car.x, car.y, '#6d6152', 16, 'debris');
       audio('explosion');
       message('The car is finished. Get clear.', 3.4);
     }
@@ -758,7 +823,8 @@ export function createWorld(seed) {
         }
       }
       if (hit) {
-        burst(bullet.x, bullet.y, bullet.owner === 'player' ? '#ffcf4a' : '#ff6b6b', 3);
+        burst(bullet.x, bullet.y, bullet.owner === 'player' ? '#ffcf4a' : '#ff6b6b', 5);
+        burst(bullet.x, bullet.y, '#6b6560', 2, 'debris');
         state.bullets.splice(index, 1);
       }
     }
@@ -783,6 +849,7 @@ export function createWorld(seed) {
         actor.fireTimer -= dt;
         if (actor.fireTimer <= 0 && distance < 380) {
           actor.fireTimer = 0.9 + random() * 1.1;
+          addMuzzle(actor.x, actor.y, actor.angle, 'enemy');
           state.bullets.push({ x: actor.x, y: actor.y, vx: Math.cos(actor.angle) * 470, vy: Math.sin(actor.angle) * 470, life: 0.9, damage: actor.kind === 'boss' ? 15 : 9, owner: 'enemy', angle: actor.angle, trail: 0 });
           audio('policeShot');
         }
@@ -803,6 +870,47 @@ export function createWorld(seed) {
       particle.vx *= 0.94;
       particle.vy *= 0.94;
       if (particle.life <= 0) state.particles.splice(index, 1);
+    }
+  }
+
+  function updateEffects(dt) {
+    for (let index = state.skids.length - 1; index >= 0; index -= 1) {
+      state.skids[index].life -= dt;
+      if (state.skids[index].life <= 0) state.skids.splice(index, 1);
+    }
+    for (let index = state.exhaust.length - 1; index >= 0; index -= 1) {
+      const puff = state.exhaust[index];
+      puff.life -= dt;
+      puff.x += puff.vx * dt;
+      puff.y += puff.vy * dt;
+      puff.vx *= 0.95;
+      puff.vy *= 0.95;
+      puff.size += dt * 8;
+      if (puff.life <= 0) state.exhaust.splice(index, 1);
+    }
+    for (let index = state.muzzles.length - 1; index >= 0; index -= 1) {
+      state.muzzles[index].life -= dt;
+      if (state.muzzles[index].life <= 0) state.muzzles.splice(index, 1);
+    }
+    // Idling and cruising traffic leaves exhaust in the spray, so a frozen frame still reads as live.
+    state.trafficPuffTimer = (state.trafficPuffTimer || 0) + dt;
+    if (state.trafficPuffTimer > 0.085) {
+      state.trafficPuffTimer = 0;
+      const px = player.vehicle ? player.vehicle.x : player.x;
+      const py = player.vehicle ? player.vehicle.y : player.y;
+      for (let index = 0; index < state.traffic.length; index += 1) {
+        const car = state.traffic[index];
+        if (car === player.vehicle || Math.abs(car.speed) < 28) continue;
+        if (Math.abs(car.x - px) > 640 || Math.abs(car.y - py) > 430) continue;
+        const tail = rearWheel(car, Math.random() < 0.5 ? -1 : 1);
+        addExhaust(tail.x, tail.y, car.angle, car.speed, car.type === 'tern' ? '#8eb1b7' : '#a7bdc2');
+      }
+      for (let index = 0; index < state.police.length; index += 1) {
+        const cop = state.police[index];
+        if (cop.kind !== 'police' || cop.destroyed || Math.abs(cop.speed) < 35) continue;
+        const tail = rearWheel(cop, Math.random() < 0.5 ? -1 : 1);
+        addExhaust(tail.x, tail.y, cop.angle, cop.speed, '#8eb1b7');
+      }
     }
   }
 
@@ -845,6 +953,7 @@ export function createWorld(seed) {
     updateMissionActors(dt);
     missions.update(state, dt);
     updateParticles(dt);
+    updateEffects(dt);
     updateCamera(dt);
     state.district = city.districtAt(player.vehicle ? player.vehicle.x : player.x, player.vehicle ? player.vehicle.y : player.y);
     state.nearVehicle = player.vehicle ? null : nearestVehicle(66);
@@ -954,6 +1063,7 @@ export function createWorld(seed) {
   }
 
   function addPoliceNear(x, y, count) {
+    const added = [];
     for (let index = 0; index < count; index += 1) {
       const cop = {
         kind: 'police', type: 'tern',
@@ -966,7 +1076,9 @@ export function createWorld(seed) {
         plate: 'PKPD-' + (400 + index),
       };
       state.police.push(cop);
+      added.push(cop);
     }
+    return added;
   }
 
 
@@ -1017,7 +1129,7 @@ export function createWorld(seed) {
   reset();
   return {
     state, city, player, missions, trafficSystem, policeSystem,
-    step, reset, interact, save, load, hasSave, teleport, setVehicle,
+    step, reset, interact, save, load, hasSave, teleport, setVehicle, addMuzzle, burst, addExhaust, addSkid,
     triggerWanted, addPoliceNear, setMissionDemo, spawnPedestrian, spawnCarAt, spawnPedAt, getClock,
     saveKey: STORAGE_KEY,
   };
