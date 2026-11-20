@@ -1,4 +1,4 @@
-// The five-job story chain. Missions are data plus a small set of objective verbs, so world.js
+// The eight-job story chain. Missions are data plus a small set of objective verbs, so world.js
 // remains the only place that advances real time and render.js can ask one function where to put
 // the gold marker. Marrow sends Vale through the city; Okonkwo closes in as the jobs get dirtier.
 
@@ -55,6 +55,30 @@ const M = [
     reward: 650,
   },
   {
+    id: 'salt-trap',
+    title: 'THE SALT TRAP',
+    giver: 'MARROW',
+    intro: 'Marrow: "Someone in the division read our crates. I set a meet at Salt Market through the mole. Bring a second gun. It is going to be an ambush, just not for us."',
+    steps: [
+      {
+        type: 'goto', x: 866, y: 2266, r: 72,
+        text: 'Take the bait at Salt Market',
+        dialogue: 'Marrow: "Stand in the light, look nervous. The mole will bring his friends."',
+      },
+      {
+        type: 'kill', count: 3, x: 866, y: 2266, r: 210,
+        text: 'Break the ambush (0/3)',
+        dialogue: 'Marrow: "Three badges down and not one of them ours. The division will call it gang paperwork."',
+      },
+      {
+        type: 'goto', x: 820, y: 1566, r: 72,
+        text: 'Lay low at Lantern Ward',
+        dialogue: 'Marrow: "You just bought us a week of quiet. Okonkwo will spend it looking at his own house."',
+      },
+    ],
+    reward: 750,
+  },
+  {
     id: 'three-star-night',
     title: 'THREE-STAR NIGHT',
     giver: 'MARROW',
@@ -77,6 +101,35 @@ const M = [
       },
     ],
     reward: 900,
+  },
+  {
+    id: 'harbor-tail',
+    title: 'HARBOR TAIL',
+    giver: 'MARROW',
+    intro: 'Marrow: "A runner named Pavel moves Ivo\'s paper along the Neon Strip every night. Silence him before he reaches the exchange, then disappear. No noise, no parade."',
+    steps: [
+      {
+        type: 'goto', x: 1760, y: 1566, r: 82,
+        text: 'Pick up Pavel\'s route on the Neon Strip',
+        dialogue: 'Marrow: "Grey coat, quick step, crooked tie. He counts the arcade signs when he walks."',
+      },
+      {
+        type: 'target', tag: 'pavel', x: 2210, y: 1470,
+        text: 'Silence Pavel before the exchange',
+        dialogue: 'Marrow: "Pavel is fast but he is not lucky. Make sure the paper never gets read."',
+      },
+      {
+        type: 'survive', seconds: 24, x: 1760, y: 1566, r: 600, wanted: 2,
+        text: 'Shake the response for 24 seconds',
+        dialogue: 'Marrow: "That was loud, Vale. Walk it off under the awnings."',
+      },
+      {
+        type: 'goto', x: 2016, y: 1566, r: 70,
+        text: 'Report to Marrow at the Night Tide',
+        dialogue: 'Marrow: "Ivo\'s paper says berth seven. Container Mile. That is our way into the division\'s pocketbook."',
+      },
+    ],
+    reward: 1000,
   },
   {
     id: 'container-job',
@@ -106,6 +159,30 @@ const M = [
       },
     ],
     reward: 1200,
+  },
+  {
+    id: 'crane-forgery',
+    title: 'CRANE FIVE FORGERY',
+    giver: 'MARROW',
+    intro: 'Marrow: "The manifest is real, which makes it useless. My forger works under Crane Five tonight. Hold the yard while he inks the division\'s own signatures onto a copy."',
+    steps: [
+      {
+        type: 'goto', x: 2320, y: 3048, r: 110,
+        text: 'Reach Crane Five',
+        dialogue: 'Marrow: "Wren is under the crane with a lamp and a steady hand. Nobody crosses the yard while he works."',
+      },
+      {
+        type: 'survive', seconds: 30, x: 2320, y: 3048, r: 280, wanted: 3,
+        text: 'Hold the yard for 30 seconds',
+        dialogue: 'Marrow: "Okonkwo knows the paper is out. Whatever comes down that road, Wren needs more time. Give him thirty seconds, Vale."',
+      },
+      {
+        type: 'goto', x: 820, y: 1566, r: 72,
+        text: 'Bring the copy to Lantern Ward',
+        dialogue: 'Marrow: "Now the division chases a manifest that hangs them. One last job at the exchange, Vale. Then the tide."',
+      },
+    ],
+    reward: 1350,
   },
   {
     id: 'last-call',
@@ -186,7 +263,7 @@ export function createMissions(city, random) {
       const count = step.count || 3;
       for (let index = 0; index < count; index += 1) {
         const angle = (index / count) * Math.PI * 2;
-        const kind = state.mission === 4 && index === 0 ? 'boss' : 'enemy';
+        const kind = M[state.mission]?.finale && index === 0 ? 'boss' : 'enemy';
         state.missionActors.push(spawnActor(kind, step.x + Math.cos(angle) * 62, step.y + Math.sin(angle) * 62, kind === 'boss' ? 'okonkwo' : `crew-${index}`));
       }
     }
@@ -289,7 +366,7 @@ export function createMissions(city, random) {
     if (state.mission === null) return 'No active job';
     if (state.mission >= M.length) return 'Port Kessel is quiet';
     const mission = M[state.mission];
-    return `${mission.title} · ${state.mission + 1}/5`;
+    return `${mission.title} · ${state.mission + 1}/${M.length}`;
   }
 
   function resume(state, index, step) {
@@ -305,11 +382,15 @@ export function createMissions(city, random) {
 }
 
 export function missionStepText(state) {
-  if (state.mission === null || state.mission >= 5) return '';
+  if (state.mission === null || state.mission >= M.length) return '';
   const mission = M[state.mission];
   return mission.steps[state.missionStep]?.text || '';
 }
 
 export function missionTitle(index) {
   return M[index]?.title || '';
+}
+
+export function missionCount() {
+  return M.length;
 }

@@ -1,6 +1,6 @@
 // Boot, screen flow and the fixed-step loop. The browser supplies input and sound; world.js
 // supplies rules; render.js and hud.js paint a complete 1280x720 frame into a responsive canvas.
-// world.js holds the city, traffic, pedestrians, police response, the five story jobs and the 12-hour clock.
+// world.js holds the city, traffic, pedestrians, police response, the eight story jobs and the 12-hour clock.
 // sidejobs.js adds three repeatable courier drops.
 // radio.js is the police-band ticker.
 // render.js draws the frame, including the minimap.

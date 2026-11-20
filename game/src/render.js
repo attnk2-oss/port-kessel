@@ -7,6 +7,7 @@ import {
 } from './config.js';
 import { clamp, hashSeed } from './random.js';
 import { drawCornerTicks, drawMeter, drawWantedStars } from './hud.js';
+import { missionCount } from './missions.js';
 
 export const SCREEN = Object.freeze({ title: 'title', play: 'play', paused: 'paused', credits: 'credits' });
 
@@ -1008,8 +1009,8 @@ export function createRenderer(canvas) {
       const metres = Math.round(Math.hypot(state.missionMarker.x - px, state.missionMarker.y - py));
       text(`${metres} M`, 1108, FIELD.height - 62, 11, '#ffdf9b', 'right', 700);
     }
-    if (state.mission !== null && state.mission < 5) {
-      text(`${state.mission + 1}/5`, 1214, FIELD.height - 62, 11, PALETTE.marker, 'right', 700);
+    if (state.mission !== null && state.mission < missionCount()) {
+      text(`${state.mission + 1}/${missionCount()}`, 1214, FIELD.height - 62, 11, PALETTE.marker, 'right', 700);
     }
     if (state.nearVehicle && !state.player.vehicle) {
       text('F  TAKE '+ (VEHICLE[state.nearVehicle.type]?.name || 'CAR').toUpperCase(), 640, FIELD.height - 108, 12, '#ffcf4a', 'center', 700);

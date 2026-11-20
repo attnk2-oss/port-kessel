@@ -1062,7 +1062,7 @@ export function createWorld(seed) {
       state.weapon = data.weapon === 'pistol' ? 'pistol' : 'fists';
       state.clockMinutes = Number(data.clockMinutes) || 22 * 60 + 40;
       state.missionsDone = Number(data.missionsDone) || 0;
-      if (Number.isInteger(data.mission) && data.mission >= 0 && data.mission < 5) {
+      if (Number.isInteger(data.mission) && data.mission >= 0 && data.mission < missions.definitions.length) {
         missions.resume(state, data.mission, clamp(Number(data.missionStep) || 0, 0, 4));
         state.objective = missionStepText(state);
       }
