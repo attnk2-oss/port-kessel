@@ -40,6 +40,8 @@ export const PLAYER = Object.freeze({
   bulletDamage: 38,
 });
 
+export const PLAYER_CAR = Object.freeze({ body: '#dfff3f', rim: '#071016', stripe: '#f6ffe0', marker: '#fff46b' });
+
 export const VEHICLE = Object.freeze({
   kestrel: {
     name: 'Kestrel coupe', length: 75, width: 35, maxSpeed: 290, reverse: 92,

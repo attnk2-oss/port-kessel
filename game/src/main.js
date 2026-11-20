@@ -1,5 +1,11 @@
 // Boot, screen flow and the fixed-step loop. The browser supplies input and sound; world.js
 // supplies rules; render.js and hud.js paint a complete 1280x720 frame into a responsive canvas.
+// world.js holds the city, traffic, pedestrians, police response, the five story jobs and the 12-hour clock.
+// sidejobs.js adds three repeatable courier drops.
+// radio.js is the police-band ticker.
+// render.js draws the frame, including the minimap.
+// hud.js holds meters and wanted stars; input.js the controls; audio.js the sound.
+// Money, respawn fees and a save file give progression.
 
 import { FIELD, STEP } from './config.js';
 import { createWorld, formatClock } from './world.js';

@@ -11,6 +11,8 @@ import { createCity } from './city.js';
 import { createTraffic, createTrafficCar } from './traffic.js';
 import { createPolice } from './police.js';
 import { createMissions, missionStepText } from './missions.js';
+import { createRadio } from './radio.js';
+import { createSideJobs } from './sidejobs.js';
 
 const DIR_LANE = [{ x: 0, y: 21 }, { x: -21, y: 0 }, { x: 0, y: -21 }, { x: 21, y: 0 }];
 const SHOT_LIFE = 1.15;
@@ -42,6 +44,8 @@ export function createWorld(seed) {
   const trafficSystem = createTraffic(null, city, trafficRandom);
   const policeSystem = createPolice(city, random.stream(37));
   const missions = createMissions(city, random.stream(43));
+  const radio = createRadio();
+  const sideJobs = createSideJobs();
 
   const state = {
     seed: Number(seed) || 7,
@@ -55,6 +59,10 @@ export function createWorld(seed) {
     particles: [],
     skids: [],
     exhaust: [],
+    spray: [],
+    radio: null,
+    sideJob: null,
+    sideJobsDone: 0,
     muzzles: [],
     missionActors: [],
     corpsePaths: [],
@@ -138,7 +146,7 @@ export function createWorld(seed) {
     player.invulnerable = 1.2; player.dead = false; player.reload = 0;
     state.wanted = 0; state.heat = 0; state.policeSight = 0; state.lastCrime = 0;
     state.police.length = 0; state.bullets.length = 0; state.particles.length = 0;
-    state.skids.length = 0; state.exhaust.length = 0; state.muzzles.length = 0;
+    state.skids.length = 0; state.exhaust.length = 0; state.muzzles.length = 0; state.spray.length = 0;
     state.peds.length = 0; state.missionActors.length = 0;
     state.money = 120; state.mission = null; state.missionStep = 0;
     state.missionComplete = false; state.missionsDone = 0; state.nextMissionTimer = 0;
@@ -150,6 +158,8 @@ export function createWorld(seed) {
     state.policeSpawnTimer = 1.2; state.footSpawnTimer = 2;
     state.district = city.districtAt(player.x, player.y);
     state.camera.x = player.x; state.camera.y = player.y;
+    radio.reset(state);
+    sideJobs.reset(state);
     state.message = ''; state.messageTimer = 0;
     state.pedsKilled = 0; state.policeKilled = 0; state.playerShots = 0; state.policeShots = 0;
     trafficSystem.cars.length = 0;
@@ -272,6 +282,20 @@ export function createWorld(seed) {
       vy: -Math.sin(angle) * (14 + Math.random() * 38) + Math.cos(angle) * (Math.random() - 0.5) * 15,
       life: 0.32 + Math.random() * 0.36, max: 0.68,
       size: 3 + Math.random() * 4 + Math.min(4, Math.abs(speed) * 0.018), tint,
+    });
+  }
+
+  function addSpray(x, y, angle, speed, tint = '#cfe8ea') {
+    if (state.spray.length > 220) state.spray.shift();
+    const side = (Math.random() - 0.5) * 34;
+    state.spray.push({
+      x: x + Math.cos(angle + Math.PI / 2) * side * 0.35,
+      y: y + Math.sin(angle + Math.PI / 2) * side * 0.35,
+      vx: -Math.cos(angle) * (18 + Math.random() * 44) + Math.cos(angle + Math.PI / 2) * side,
+      vy: -Math.sin(angle) * (18 + Math.random() * 44) + Math.sin(angle + Math.PI / 2) * side,
+      life: 0.28 + Math.random() * 0.42, max: 0.7,
+      size: 1.2 + Math.random() * 2.8 + Math.min(3, Math.abs(speed) * 0.01),
+      tint,
     });
   }
 
@@ -590,6 +614,14 @@ export function createWorld(seed) {
         addExhaust(tail.x, tail.y, car.angle, car.speed, car.type === 'tern' ? '#8eb1b7' : '#a7bdc2');
       }
     }
+    if (Math.abs(car.speed) > 82) {
+      state.sprayTimer = (state.sprayTimer || 0) + dt;
+      if (state.sprayTimer > 0.028) {
+        state.sprayTimer = 0;
+        const tail = rearWheel(car, Math.random() < 0.5 ? -1 : 1);
+        addSpray(tail.x, tail.y, car.angle, car.speed);
+      }
+    }
     state.driveDistance += Math.abs(car.speed) * dt;
     state.currentVehicleName = spec.name;
     state.camera.x += (car.x - state.camera.x) * CAMERA.driveFollow;
@@ -892,6 +924,15 @@ export function createWorld(seed) {
       state.muzzles[index].life -= dt;
       if (state.muzzles[index].life <= 0) state.muzzles.splice(index, 1);
     }
+    for (let index = state.spray.length - 1; index >= 0; index -= 1) {
+      const drop = state.spray[index];
+      drop.life -= dt;
+      drop.x += drop.vx * dt;
+      drop.y += drop.vy * dt;
+      drop.vx *= 0.96;
+      drop.vy *= 0.96;
+      if (drop.life <= 0) state.spray.splice(index, 1);
+    }
     // Idling and cruising traffic leaves exhaust in the spray, so a frozen frame still reads as live.
     state.trafficPuffTimer = (state.trafficPuffTimer || 0) + dt;
     if (state.trafficPuffTimer > 0.085) {
@@ -954,6 +995,8 @@ export function createWorld(seed) {
     missions.update(state, dt);
     updateParticles(dt);
     updateEffects(dt);
+    sideJobs.update(state, dt);
+    radio.update(state, dt);
     updateCamera(dt);
     state.district = city.districtAt(player.vehicle ? player.vehicle.x : player.x, player.vehicle ? player.vehicle.y : player.y);
     state.nearVehicle = player.vehicle ? null : nearestVehicle(66);
@@ -1025,6 +1068,7 @@ export function createWorld(seed) {
       }
       state.camera.x = player.x; state.camera.y = player.y;
       state.wanted = clamp(state.wanted, 0, 5);
+      radio.sync(state);
       message('Continue: Port Kessel remembers you.', 3.5);
       return true;
     } catch {
@@ -1129,7 +1173,7 @@ export function createWorld(seed) {
   reset();
   return {
     state, city, player, missions, trafficSystem, policeSystem,
-    step, reset, interact, save, load, hasSave, teleport, setVehicle, addMuzzle, burst, addExhaust, addSkid,
+    step, reset, interact, save, load, hasSave, teleport, setVehicle, addMuzzle, burst, addExhaust, addSpray, addSkid, radio, sideJobs,
     triggerWanted, addPoliceNear, setMissionDemo, spawnPedestrian, spawnCarAt, spawnPedAt, getClock,
     saveKey: STORAGE_KEY,
   };
