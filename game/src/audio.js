@@ -1,55 +1,72 @@
-// Synthesised harbour sound. No files, no network: engines, a siren, filtered rain, lapping water,
-// distant horns, gulls and one-shot envelopes are created when the browser allows it after a
-// gesture. Every entry point is guarded, because a page with no AudioContext must still play the
-// game silently.
+// Synthesised harbour soundscape. No files, no network: the pad, rain, water, ship horn, gulls,
+// engine, siren and one-shot effects are all WebAudio nodes created after the first gesture.
+// Every layer is driven from update() below; mute is a single master-gain target, so it silences
+// both loops and one-shots without tearing down the graph.
 
+import { SOUND_KEY } from './config.js';
 import { clamp } from './random.js';
+
+const MASTER_VOLUME = 0.34;
+const WATER_LAP_RANGE = [1.5, 4];
+const HORN_RANGE = [25, 60];
+const GULL_RANGE = [8, 20];
 
 export function createAudio() {
   let context = null;
   let master = null;
   let compressor = null;
-  let ambientGain = null;
-  let rainGain = null;
-  let engineOsc = null;
-  let engineGain = null;
-  let sirenOsc = null;
-  let sirenGain = null;
   let muted = false;
   let started = false;
+
+  // Continuous beds: each destination gain is ramped from update().
+  let padGain = null;
+  let rainGain = null;
+  let waterBedGain = null;
+  let waterLapGain = null;
+  let hornGain = null;
+  let gullGain = null;
+  let engineGain = null;
+  let sirenGain = null;
+
+  // Oscillators whose pitch tracks the player or the siren.
+  let gullOsc = null;
+  let engineOsc = null;
+  let sirenOsc = null;
+
+  // Smoothed levels avoid clicks when a car is entered or a cruiser arrives.
   let engineLevel = 0;
   let sirenLevel = 0;
   let rainLevel = 0;
   let waterBedLevel = 0;
   let stepClock = 0;
   let skidClock = 0;
-  let waterBedGain = null;
-  let waterLapGain = null;
-  let hornGain = null;
-  let gullOsc = null;
-  let gullGain = null;
+
+  // Harbour events run on independent clocks so a horn never resets the water rhythm.
   let waterClock = 0;
   let hornClock = 0;
   let gullClock = 0;
-  let nextWaterLap = 1.5 + Math.random() * 2.5;
-  let nextHorn = 25 + Math.random() * 35;
-  let nextGulls = 8 + Math.random() * 12;
+  let nextWaterLap = randomBetween(WATER_LAP_RANGE);
+  let nextHorn = randomBetween(HORN_RANGE);
+  let nextGulls = randomBetween(GULL_RANGE);
 
   try {
-    const saved = window.localStorage.getItem('neon-harbor.sound');
-    if (saved === 'off') muted = true;
+    if (window.localStorage.getItem(SOUND_KEY) === 'off') muted = true;
   } catch {
-    muted = false;
+    // Private browsing can refuse storage; start with sound on.
+  }
+
+  function randomBetween([low, high]) {
+    return low + Math.random() * (high - low);
   }
 
   function buildAudioGraph() {
     if (context) return;
-    const Ctx = window.AudioContext || window.webkitAudioContext;
-    if (!Ctx) return;
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextClass) return;
     try {
-      context = new Ctx();
+      context = new AudioContextClass();
       master = context.createGain();
-      master.gain.value = muted ? 0 : 0.34;
+      master.gain.value = muted ? 0 : MASTER_VOLUME;
       compressor = context.createDynamicsCompressor();
       compressor.threshold.value = -16;
       compressor.knee.value = 14;
@@ -57,47 +74,48 @@ export function createAudio() {
       master.connect(compressor);
       compressor.connect(context.destination);
 
-      ambientGain = context.createGain();
-      ambientGain.gain.value = 0.12;
-      ambientGain.connect(master);
-      const padA = context.createOscillator();
-      const padB = context.createOscillator();
+      // Low harbour pad: two close tones through a soft lowpass.
+      padGain = context.createGain();
+      padGain.gain.value = 0.12;
+      padGain.connect(master);
+      const padLow = context.createOscillator();
+      const padHigh = context.createOscillator();
       const padFilter = context.createBiquadFilter();
-      padA.type = 'sine'; padA.frequency.value = 55;
-      padB.type = 'triangle'; padB.frequency.value = 82.5;
+      padLow.type = 'sine'; padLow.frequency.value = 55;
+      padHigh.type = 'triangle'; padHigh.frequency.value = 82.5;
       padFilter.type = 'lowpass'; padFilter.frequency.value = 210; padFilter.Q.value = 3;
-      padA.connect(padFilter); padB.connect(padFilter); padFilter.connect(ambientGain);
-      padA.start(); padB.start();
+      padLow.connect(padFilter); padHigh.connect(padFilter); padFilter.connect(padGain);
+      padLow.start(); padHigh.start();
 
+      // Filtered noise gives the rain its hiss and its slow swell.
       rainGain = context.createGain();
-      rainGain.gain.value = 0.0;
+      rainGain.gain.value = 0;
       rainGain.connect(master);
-      const length = Math.floor(context.sampleRate * 2);
-      const buffer = context.createBuffer(1, length, context.sampleRate);
-      const data = buffer.getChannelData(0);
-      let tail = 0;
-      for (let index = 0; index < length; index += 1) {
-        tail = tail * 0.93 + (Math.random() * 2 - 1) * 0.07;
-        data[index] = tail * 3.2;
+      const rainLength = Math.floor(context.sampleRate * 2);
+      const rainBuffer = context.createBuffer(1, rainLength, context.sampleRate);
+      const rainData = rainBuffer.getChannelData(0);
+      let rainTail = 0;
+      for (let index = 0; index < rainLength; index += 1) {
+        rainTail = rainTail * 0.93 + (Math.random() * 2 - 1) * 0.07;
+        rainData[index] = rainTail * 3.2;
       }
       const rain = context.createBufferSource();
-      rain.buffer = buffer; rain.loop = true;
+      rain.buffer = rainBuffer; rain.loop = true;
       const rainFilter = context.createBiquadFilter();
       rainFilter.type = 'bandpass'; rainFilter.frequency.value = 2300; rainFilter.Q.value = 0.6;
       rain.connect(rainFilter); rainFilter.connect(rainGain); rain.start();
 
-      // A slow brown-noise bed and a separate gain for lapping pulses. Both stay below the rain
-      // because the harbour should sit around the scene, not over it.
-      const lapLength = Math.floor(context.sampleRate * 3);
-      const lapBuffer = context.createBuffer(1, lapLength, context.sampleRate);
-      const lapData = lapBuffer.getChannelData(0);
-      let lapTail = 0;
-      for (let index = 0; index < lapLength; index += 1) {
-        lapTail = lapTail * 0.985 + (Math.random() * 2 - 1) * 0.015;
-        lapData[index] = lapTail * 4.2;
+      // Brown-noise water has a constant bed plus a second gain for individual lapping pulses.
+      const waterLength = Math.floor(context.sampleRate * 3);
+      const waterBuffer = context.createBuffer(1, waterLength, context.sampleRate);
+      const waterData = waterBuffer.getChannelData(0);
+      let waterTail = 0;
+      for (let index = 0; index < waterLength; index += 1) {
+        waterTail = waterTail * 0.985 + (Math.random() * 2 - 1) * 0.015;
+        waterData[index] = waterTail * 4.2;
       }
       const water = context.createBufferSource();
-      water.buffer = lapBuffer; water.loop = true;
+      water.buffer = waterBuffer; water.loop = true;
       const waterFilter = context.createBiquadFilter();
       waterFilter.type = 'lowpass'; waterFilter.frequency.value = 360; waterFilter.Q.value = 0.8;
       waterBedGain = context.createGain();
@@ -109,7 +127,7 @@ export function createAudio() {
       waterFilter.connect(waterLapGain); waterLapGain.connect(master);
       water.start();
 
-      // 110 Hz against 165 Hz gives the horn its fifth; the lowpass keeps the pair off the fore.
+      // A 110/165 Hz fifth through a lowpass reads as a ship's horn far across the basin.
       hornGain = context.createGain();
       hornGain.gain.value = 0;
       const hornFilter = context.createBiquadFilter();
@@ -122,6 +140,7 @@ export function createAudio() {
       hornFilter.connect(hornGain); hornGain.connect(master);
       hornLow.start(); hornHigh.start();
 
+      // One gull oscillator is enough: each cry is a short downward pitch envelope.
       gullOsc = context.createOscillator();
       gullOsc.type = 'triangle';
       gullOsc.frequency.value = 900;
@@ -130,6 +149,7 @@ export function createAudio() {
       gullOsc.connect(gullGain); gullGain.connect(master);
       gullOsc.start();
 
+      // Engine sawtooth, filtered low enough that gear changes read as pitch rather than buzz.
       engineOsc = context.createOscillator();
       engineOsc.type = 'sawtooth';
       engineOsc.frequency.value = 54;
@@ -140,6 +160,7 @@ export function createAudio() {
       engineOsc.connect(engineFilter); engineFilter.connect(engineGain); engineGain.connect(master);
       engineOsc.start();
 
+      // Siren loop; update() moves its pitch and gain when a cruiser is close.
       sirenOsc = context.createOscillator();
       sirenOsc.type = 'triangle';
       sirenOsc.frequency.value = 680;
@@ -165,19 +186,19 @@ export function createAudio() {
     if (!started || muted || !context) return;
     try {
       const now = context.currentTime;
-      const osc = context.createOscillator();
+      const oscillator = context.createOscillator();
       const gain = context.createGain();
-      osc.type = type;
-      osc.frequency.setValueAtTime(frequency, now);
-      if (slide) osc.frequency.exponentialRampToValueAtTime(Math.max(20, frequency + slide), now + duration);
+      oscillator.type = type;
+      oscillator.frequency.setValueAtTime(frequency, now);
+      if (slide) oscillator.frequency.exponentialRampToValueAtTime(Math.max(20, frequency + slide), now + duration);
       gain.gain.setValueAtTime(volume, now);
       gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
-      osc.connect(gain);
+      oscillator.connect(gain);
       gain.connect(destination || master);
-      osc.start(now);
-      osc.stop(now + duration + 0.02);
+      oscillator.start(now);
+      oscillator.stop(now + duration + 0.02);
     } catch {
-      // Sound is decoration; never let a refused node stop a frame.
+      // Sound is decoration; a refused node must never stop a frame.
     }
   }
 
@@ -200,7 +221,7 @@ export function createAudio() {
       source.connect(filter); filter.connect(gain); gain.connect(master);
       source.start();
     } catch {
-      // Ignore a transient audio allocation failure.
+      // A transient allocation failure should only lose that effect.
     }
   }
 
@@ -216,7 +237,7 @@ export function createAudio() {
       gain.linearRampToValueAtTime(0, start + 0.95);
       gain.setValueAtTime(0, start + 1.1);
     } catch {
-      // A scheduled breath of water is optional decoration.
+      // A missed lap is optional decoration.
     }
   }
 
@@ -255,12 +276,27 @@ export function createAudio() {
 
   function setAudioMuted(next) {
     muted = next;
-    if (master && context) master.gain.setTargetAtTime(muted ? 0 : 0.34, context.currentTime, 0.03);
-    try { window.localStorage.setItem('neon-harbor.sound', muted ? 'off' : 'on'); } catch { /* private mode */ }
+    if (master && context) master.gain.setTargetAtTime(muted ? 0 : MASTER_VOLUME, context.currentTime, 0.03);
+    try { window.localStorage.setItem(SOUND_KEY, muted ? 'off' : 'on'); } catch { /* private mode */ }
   }
 
-  function updateAudio(state, dt) {
-    if (!started || !context) return;
+  // Five gears give the engine a stepped rise; between changes the pitch still follows speed.
+  function enginePitch(speed) {
+    const gearRatios = [0.55, 0.75, 0.95, 1.17, 1.4];
+    const gear = Math.min(gearRatios.length - 1, Math.floor(speed / 58));
+    return speed > 1 ? 48 + 145 * gearRatios[gear] : 48;
+  }
+
+  // Water is loudest at the quay and fades as Vale walks inland.
+  function shoreCloseness(state) {
+    const waterY = state.city && state.city.water ? state.city.water.y : null;
+    const playerY = state.player.y;
+    if (!Number.isFinite(waterY) || !Number.isFinite(playerY)) return 0.35;
+    const distance = Math.max(0, Math.abs(waterY - playerY));
+    return clamp(1 - distance / 1150, 0.08, 1);
+  }
+
+  function updateContinuousMix(state, dt, shore) {
     const player = state.player;
     const vehicle = player.vehicle;
     const speed = vehicle ? Math.abs(vehicle.speed) : 0;
@@ -268,20 +304,13 @@ export function createAudio() {
     const targetEngine = vehicle ? clamp(0.035 + speed / 900, 0.035, 0.22) : 0;
     const targetSiren = nearSiren && state.wanted > 0 ? 0.035 : 0;
     const targetRain = state.mode === 'title' ? 0.045 : 0.075;
-    const waterY = state.city && state.city.water ? state.city.water.y : null;
-    const waterDistance = Number.isFinite(waterY) && Number.isFinite(player.y)
-      ? Math.max(0, Math.abs(waterY - player.y)) : null;
-    const dockCloseness = waterDistance === null ? 0.35 : clamp(1 - waterDistance / 1150, 0.08, 1);
-    const gearRatios = [0.55, 0.75, 0.95, 1.17, 1.4];
-    const gear = Math.min(gearRatios.length - 1, Math.floor(speed / 58));
-    const engineFrequency = speed > 1 ? 48 + 145 * gearRatios[gear] : 48;
     engineLevel += (targetEngine - engineLevel) * Math.min(1, dt * 4);
     sirenLevel += (targetSiren - sirenLevel) * Math.min(1, dt * 3);
     rainLevel += (targetRain - rainLevel) * Math.min(1, dt * 2);
-    waterBedLevel += ((state.mode === 'title' ? 0.014 : 0.022) * dockCloseness - waterBedLevel) * Math.min(1, dt * 1.5);
+    waterBedLevel += ((state.mode === 'title' ? 0.014 : 0.022) * shore - waterBedLevel) * Math.min(1, dt * 1.5);
     try {
       engineGain.gain.setTargetAtTime(engineLevel, context.currentTime, 0.04);
-      engineOsc.frequency.setTargetAtTime(engineFrequency, context.currentTime, 0.04);
+      engineOsc.frequency.setTargetAtTime(enginePitch(speed), context.currentTime, 0.04);
       sirenGain.gain.setTargetAtTime(sirenLevel, context.currentTime, 0.05);
       sirenOsc.frequency.setTargetAtTime(640 + Math.sin(state.time * 7) * 180, context.currentTime, 0.02);
       rainGain.gain.setTargetAtTime(rainLevel, context.currentTime, 0.1);
@@ -289,38 +318,60 @@ export function createAudio() {
     } catch {
       // Audio nodes can be closed by the browser when a tab sleeps.
     }
+  }
+
+  function updateHarbourEvents(dt, shore) {
     waterClock += dt;
     if (waterClock >= nextWaterLap) {
       waterClock = 0;
-      nextWaterLap = 1.5 + Math.random() * 2.5;
-      scheduleWaterLap(context.currentTime, 0.018 * dockCloseness);
+      nextWaterLap = randomBetween(WATER_LAP_RANGE);
+      scheduleWaterLap(context.currentTime, 0.018 * shore);
     }
     hornClock += dt;
     if (hornClock >= nextHorn) {
       hornClock = 0;
-      nextHorn = 25 + Math.random() * 35;
+      nextHorn = randomBetween(HORN_RANGE);
       scheduleHorn(context.currentTime);
     }
     gullClock += dt;
     if (gullClock >= nextGulls) {
       gullClock = 0;
-      nextGulls = 8 + Math.random() * 12;
+      nextGulls = randomBetween(GULL_RANGE);
       scheduleGulls(context.currentTime);
     }
-    if (vehicle && speed > 30) {
+  }
+
+  function updateVehicleDetails(state, dt) {
+    const vehicle = state.player.vehicle;
+    if (!vehicle) {
+      skidClock = 0;
+      return;
+    }
+    const speed = Math.abs(vehicle.speed);
+    if (speed > 30) {
       stepClock += dt * (speed / 110);
       if (stepClock > 0.27) {
         stepClock = 0;
         playTone(72 + Math.random() * 14, 0.05, 'square', 0.008, -18);
       }
     }
-    if (vehicle && state.tyreSqueal) {
+    if (state.tyreSqueal) {
       skidClock += dt;
       if (skidClock > 0.17) {
         skidClock = 0;
         playTone(1380 + Math.random() * 180, 0.11, 'sawtooth', 0.022, -260);
       }
-    } else skidClock = 0;
+    } else {
+      skidClock = 0;
+    }
+  }
+
+  function updateAudio(state, dt) {
+    if (!started || !context) return;
+    const shore = shoreCloseness(state);
+    updateContinuousMix(state, dt, shore);
+    updateHarbourEvents(dt, shore);
+    updateVehicleDetails(state, dt);
   }
 
   return {

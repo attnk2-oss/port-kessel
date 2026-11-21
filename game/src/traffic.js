@@ -12,6 +12,7 @@ export const DIR_N = 3;
 const DX = [1, 0, -1, 0];
 const DY = [0, 1, 0, -1];
 
+// A lane is 21 m off the centreline; direction determines which side of the road it sits on.
 function lanePoint(city, gi, gj, dir) {
   const x = city.avenue(gi);
   const y = city.cross(gj);
@@ -23,29 +24,30 @@ function lanePoint(city, gi, gj, dir) {
 
 function segmentFor(city, gi, gj, dir) {
   const from = lanePoint(city, gi, gj, dir);
-  const ni = gi + DX[dir];
-  const nj = gj + DY[dir];
-  const to = lanePoint(city, ni, nj, dir);
-  return { from, to, ni, nj, length: Math.max(1, Math.hypot(to.x - from.x, to.y - from.y)) };
+  const nextI = gi + DX[dir];
+  const nextJ = gj + DY[dir];
+  const to = lanePoint(city, nextI, nextJ, dir);
+  return { from, to, nextI, nextJ, length: Math.max(1, Math.hypot(to.x - from.x, to.y - from.y)) };
 }
 
-function valid(city, i, j) {
+function insideGrid(i, j) {
   return i >= 0 && i <= CITY.blocksX && j >= 0 && j <= CITY.blocksY;
 }
 
-function pickTurn(city, gi, gj, dir, random) {
-  const options = [dir];
+// Right turns are twice as likely as left turns; a blocked straight ahead forces a turn.
+function chooseDirection(city, gi, gj, dir, random) {
+  const choices = [dir];
   const right = (dir + 1) % 4;
   const left = (dir + 3) % 4;
-  if (valid(city, gi + DX[right], gj + DY[right])) options.push(right, right);
-  if (valid(city, gi + DX[left], gj + DY[left])) options.push(left);
-  if (!valid(city, gi + DX[dir], gj + DY[dir])) {
+  if (insideGrid(gi + DX[right], gj + DY[right])) choices.push(right, right);
+  if (insideGrid(gi + DX[left], gj + DY[left])) choices.push(left);
+  if (!insideGrid(gi + DX[dir], gj + DY[dir])) {
     for (let offset = 0; offset < 4; offset += 1) {
       const candidate = (dir + offset) % 4;
-      if (valid(city, gi + DX[candidate], gj + DY[candidate])) return candidate;
+      if (insideGrid(gi + DX[candidate], gj + DY[candidate])) return candidate;
     }
   }
-  return options[Math.floor(random() * options.length)];
+  return choices[Math.floor(random() * choices.length)];
 }
 
 export function createTrafficCar(type, x, y, angle, random, driver = true) {
@@ -71,37 +73,39 @@ export function createTraffic(state, city, random) {
     let gi = rand.int(1, 7);
     let gj = rand.int(1, 7);
     let dir = rand.int(0, 3);
-    for (let attempt = 0; attempt < 12 && !valid(cityRef, gi + DX[dir], gj + DY[dir]); attempt += 1) dir = rand.int(0, 3);
+    for (let attempt = 0; attempt < 12 && !insideGrid(cityRef, gi + DX[dir], gj + DY[dir]); attempt += 1) dir = rand.int(0, 3);
     const type = index % 7 === 0 ? 'bream' : 'kestrel';
     const point = lanePoint(cityRef, gi, gj, dir);
-    const seg = segmentFor(cityRef, gi, gj, dir);
+    const segment = segmentFor(cityRef, gi, gj, dir);
     const car = createTrafficCar(type, point.x, point.y, directionAngle(dir), rand);
     car.gi = gi; car.gj = gj; car.dir = dir;
-    car.fromX = seg.from.x; car.fromY = seg.from.y; car.toX = seg.to.x; car.toY = seg.to.y;
-    car.lengthSegment = seg.length; car.progress = rand.range(0.05, 0.65);
+    car.fromX = segment.from.x; car.fromY = segment.from.y;
+    car.toX = segment.to.x; car.toY = segment.to.y;
+    car.lengthSegment = segment.length; car.progress = rand.range(0.05, 0.65);
     placeOnSegment(car);
     if (rand() < 0.28) car.color = rand.pick(TRAFFIC.colors);
     return car;
   }
 
   function placeOnSegment(car) {
-    const t = clamp(car.progress, 0, 1);
-    car.x = car.fromX + (car.toX - car.fromX) * t;
-    car.y = car.fromY + (car.toY - car.fromY) * t;
+    const progress = clamp(car.progress, 0, 1);
+    car.x = car.fromX + (car.toX - car.fromX) * progress;
+    car.y = car.fromY + (car.toY - car.fromY) * progress;
     car.angle = Math.atan2(car.toY - car.fromY, car.toX - car.fromX);
   }
 
   function beginSegment(car, dir) {
     car.dir = dir;
     car.fromX = car.x; car.fromY = car.y;
-    const ni = car.gi + DX[dir];
-    const nj = car.gj + DY[dir];
-    const to = lanePoint(city, ni, nj, dir);
+    const nextI = car.gi + DX[dir];
+    const nextJ = car.gj + DY[dir];
+    const to = lanePoint(city, nextI, nextJ, dir);
     car.toX = to.x; car.toY = to.y;
     car.lengthSegment = Math.max(1, Math.hypot(to.x - car.x, to.y - car.y));
-    car.gi = ni; car.gj = nj; car.progress = 0;
+    car.gi = nextI; car.gj = nextJ; car.progress = 0;
   }
 
+  // Project the player and nearby cars onto this car's heading; a short forward cone is a block.
   function wantsStop(car, player, cars) {
     const headingX = Math.cos(car.angle);
     const headingY = Math.sin(car.angle);
@@ -124,15 +128,17 @@ export function createTraffic(state, city, random) {
     return false;
   }
 
-  function inJunction(car) {
-    const ix = city.avenue(car.gi);
-    const iy = city.cross(car.gj);
-    const near = Math.hypot(car.x - ix, car.y - iy) < 64;
+  function nearJunction(car) {
+    const junctionX = city.avenue(car.gi);
+    const junctionY = city.cross(car.gj);
+    const near = Math.hypot(car.x - junctionX, car.y - junctionY) < 64;
     return near && car.progress > 0.78;
   }
 
+  // A car in the junction yields to an already-moving crossing car; eastbound traffic also
+  // checks for a close cross-avenue car before entering the box.
   function crossingAt(car, cars) {
-    if (!inJunction(car)) return false;
+    if (!nearJunction(car)) return false;
     for (let index = 0; index < cars.length; index += 1) {
       const other = cars[index];
       if (other === car || other.playerOwned) continue;
@@ -143,7 +149,6 @@ export function createTraffic(state, city, random) {
       }
     }
     if (car.dir % 2 === 0) {
-      // At a four-way box, halt briefly before entering when a fast car is close on the cross avenue.
       for (let index = 0; index < cars.length; index += 1) {
         const other = cars[index];
         if (other === car || other.playerOwned) continue;
@@ -162,29 +167,30 @@ export function createTraffic(state, city, random) {
       if (car.destroyed) continue;
       car.lastHit = Math.max(0, car.lastHit - dt);
       if (!car.driver) {
+        // An abandoned car coasts to rest without advancing its route.
         car.speed *= Math.exp(-2.6 * dt);
         if (Math.abs(car.speed) < 0.2) car.speed = 0;
         car.x += Math.cos(car.angle) * car.speed * dt;
         car.y += Math.sin(car.angle) * car.speed * dt;
         continue;
       }
-      const stop = wantsStop(car, player, cars) || crossingAt(car, cars);
-      const target = stop ? 0 : TRAFFIC.cruise * (0.85 + (car.randomOffset || 0));
-      if (car.speed < target) car.speed = Math.min(target, car.speed + TRAFFIC.accel * dt);
-      else car.speed = Math.max(target, car.speed - TRAFFIC.brake * dt * (stop ? 2.4 : 0.7));
+      const shouldYield = wantsStop(car, player, cars) || crossingAt(car, cars);
+      const targetSpeed = shouldYield ? 0 : TRAFFIC.cruise * (0.85 + (car.randomOffset || 0));
+      if (car.speed < targetSpeed) car.speed = Math.min(targetSpeed, car.speed + TRAFFIC.accel * dt);
+      else car.speed = Math.max(targetSpeed, car.speed - TRAFFIC.brake * dt * (shouldYield ? 2.4 : 0.7));
       car.progress += (car.speed * dt) / car.lengthSegment;
       if (car.progress >= 1) {
         car.x = car.toX; car.y = car.toY;
-        const next = pickTurn(city, car.gi, car.gj, car.dir, random);
+        const turn = chooseDirection(city, car.gi, car.gj, car.dir, random);
         car.gi = clamp(car.gi, 0, CITY.blocksX);
         car.gj = clamp(car.gj, 0, CITY.blocksY);
-        if (!valid(city, car.gi + DX[next], car.gj + DY[next])) {
+        if (!insideGrid(car.gi + DX[turn], car.gj + DY[turn])) {
           // At the outer rim, turn around rather than leaving the map.
           car.dir = (car.dir + 2) % 4;
           car.gi = clamp(car.gi + DX[car.dir], 0, CITY.blocksX);
           car.gj = clamp(car.gj + DY[car.dir], 0, CITY.blocksY);
           beginSegment(car, car.dir);
-        } else beginSegment(car, next);
+        } else beginSegment(car, turn);
       }
       placeOnSegment(car);
       car.speed = clamp(car.speed, 0, TRAFFIC.cruise * 1.2);
@@ -203,7 +209,6 @@ export function directionAngle(dir) {
 export function steerCarToward(car, targetX, targetY, dt, maxTurn) {
   const desired = Math.atan2(targetY - car.y, targetX - car.x);
   const delta = angleDelta(car.angle, desired);
-  const turn = clamp(delta, -maxTurn * dt, maxTurn * dt);
-  car.angle += turn;
+  car.angle += clamp(delta, -maxTurn * dt, maxTurn * dt);
   return delta;
 }

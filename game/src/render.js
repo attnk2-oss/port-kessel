@@ -1,6 +1,7 @@
 // Canvas 2D presentation for NEON HARBOR. The city is drawn in metres through one camera
-// transform, then the HUD is drawn in the fixed 1280x720 logical frame. No assets are fetched:
-// wet asphalt, lit windows, neon tubes, cones and rain are all paths and gradients.
+// transform, then the HUD is drawn in the fixed 1280x720 logical frame. Nothing is fetched:
+// wet asphalt, lit windows, neon tubes, headlight cones and rain are all paths and gradients.
+// World drawing is culled by camera first; HUD drawing never mutates simulation state.
 
 import {
   CITY, DISPLAY_FONT, FONT, FIELD, PALETTE, SAFEHOUSE, VEHICLE, WANTED, WEAPONS,
@@ -20,7 +21,7 @@ const rain = Array.from({ length: RAIN_COUNT }, (_, index) => ({
   layer: index % 3,
 }));
 
-function shade(hex, amount) {
+function shadeHex(hex, amount) {
   const raw = Number.parseInt(hex.slice(1), 16);
   const r = clamp(((raw >> 16) & 255) + amount, 0, 255);
   const g = clamp(((raw >> 8) & 255) + amount, 0, 255);
@@ -36,6 +37,8 @@ export function createRenderer(canvas) {
   let time = 0;
   const fonts = new Map();
 
+  // ---------------------------------------------------------------- viewport and type
+
   function resize() {
     const ratio = Math.min(2, window.devicePixelRatio || 1);
     width = Math.round(window.innerWidth * ratio);
@@ -47,27 +50,29 @@ export function createRenderer(canvas) {
     view.y = (height - FIELD.height * view.scale) / 2;
   }
 
-  function font(size, weight = 400, family = FONT) {
+  function fontSpec(size, weight = 400, family = FONT) {
     const key = `${weight}:${size}:${family}`;
     if (!fonts.has(key)) fonts.set(key, `${weight} ${size}px ${family}`);
     return fonts.get(key);
   }
 
-  function text(value, x, y, size, color = PALETTE.text, align = 'left', weight = 400, family = FONT) {
-    ctx.font = font(size, weight, family);
+  function drawText(value, x, y, size, color = PALETTE.text, align = 'left', weight = 400, family = FONT) {
+    ctx.font = fontSpec(size, weight, family);
     ctx.fillStyle = color;
     ctx.textAlign = align;
     ctx.textBaseline = 'alphabetic';
     ctx.fillText(value, x, y);
   }
 
-  function panel(x, y, w, h, fill = PALETTE.hud, edge = PALETTE.hudEdge) {
+  function drawPanel(x, y, w, h, fill = PALETTE.hud, edge = PALETTE.hudEdge) {
     ctx.fillStyle = fill;
     ctx.fillRect(x, y, w, h);
     ctx.strokeStyle = edge;
     ctx.lineWidth = 1;
     ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
   }
+
+  // ---------------------------------------------------------------- world geometry
 
   function worldTransform(state) {
     const cam = state.camera;
@@ -83,7 +88,9 @@ export function createRenderer(canvas) {
     return { sx, sy, zoom };
   }
 
-  function drawWater(city) {
+  // ---------------------------------------------------------------- harbour, streets and city blocks
+
+  function drawHarbourWater(city) {
     const water = city.water;
     const gradient = ctx.createLinearGradient(0, water.y, 0, water.y + water.h);
     gradient.addColorStop(0, '#072a38');
@@ -108,7 +115,7 @@ export function createRenderer(canvas) {
     }
   }
 
-  function drawRoads(city) {
+  function drawStreetGrid(city) {
     ctx.fillStyle = PALETTE.asphalt;
     ctx.fillRect(-200, -200, CITY.worldWidth + 400, city.dockY + 300);
     // Avenues are slightly warmer under the sodium lamps.
@@ -186,7 +193,7 @@ export function createRenderer(canvas) {
     }
   }
 
-  function drawWetReflections(city, state) {
+  function drawNeonReflections(city, state) {
     const camX = state.camera.x;
     const camY = state.camera.y;
     ctx.save();
@@ -217,7 +224,7 @@ export function createRenderer(canvas) {
     ctx.restore();
   }
 
-  function drawDock(city) {
+  function drawDockyard(city) {
     const dock = city.dock;
     ctx.fillStyle = '#1b2931';
     ctx.fillRect(dock.x, dock.y, dock.w, dock.h);
@@ -301,9 +308,9 @@ export function createRenderer(canvas) {
     // Long shadow/depth face away from the street lamps.
     ctx.fillStyle = '#0a1118';
     ctx.fillRect(building.x + 7, building.y + 8, building.w, building.h + depth);
-    ctx.fillStyle = shade(PALETTE.building, Math.floor(building.height * 22));
+    ctx.fillStyle = shadeHex(PALETTE.building, Math.floor(building.height * 22));
     ctx.fillRect(building.x, building.y, building.w, building.h);
-    ctx.fillStyle = shade(PALETTE.buildingTop, Math.floor(12 + building.height * 18));
+    ctx.fillStyle = shadeHex(PALETTE.buildingTop, Math.floor(12 + building.height * 18));
     ctx.fillRect(building.x, building.y, building.w, Math.max(8, building.h * 0.18));
     ctx.strokeStyle = 'rgba(67, 92, 102, 0.55)';
     ctx.lineWidth = 1.3;
@@ -347,7 +354,7 @@ export function createRenderer(canvas) {
     }
   }
 
-  function drawSign(sign) {
+  function drawNeonSign(sign) {
     ctx.save();
     ctx.translate(sign.x, sign.y);
     const pulse = 0.8 + Math.sin(time * 2.1 + sign.flicker) * 0.18;
@@ -358,7 +365,7 @@ export function createRenderer(canvas) {
       ctx.shadowColor = sign.color;
       ctx.shadowBlur = 13;
       ctx.fillStyle = sign.color;
-      ctx.font = font(10 * sign.scale, 700, DISPLAY_FONT);
+      ctx.font = fontSpec(10 * sign.scale, 700, DISPLAY_FONT);
       ctx.textAlign = 'center';
       for (let index = 0; index < sign.text.length; index += 1) ctx.fillText(sign.text[index], 4.5, 8 + index * 11 * sign.scale);
     } else {
@@ -366,7 +373,7 @@ export function createRenderer(canvas) {
       ctx.shadowBlur = 15;
       ctx.strokeStyle = sign.color;
       ctx.lineWidth = 1.4;
-      ctx.font = font(12 * sign.scale, 700, DISPLAY_FONT);
+      ctx.font = fontSpec(12 * sign.scale, 700, DISPLAY_FONT);
       const width = ctx.measureText(sign.text).width + 12;
       ctx.strokeRect(-width / 2, -10, width, 17);
       ctx.fillStyle = sign.color;
@@ -376,7 +383,7 @@ export function createRenderer(canvas) {
     ctx.restore();
   }
 
-  function drawParks(city) {
+  function drawParkBlocks(city) {
     for (let index = 0; index < city.parks.length; index += 1) {
       const park = city.parks[index];
       ctx.fillStyle = '#18362c';
@@ -394,11 +401,13 @@ export function createRenderer(canvas) {
       }
       ctx.fillStyle = 'rgba(201,184,121,0.28)';
       ctx.fillRect(park.x + park.w * 0.34, park.y + 10, 4, park.h - 20);
-      if (park.name) text(park.name, park.x + 10, park.y + 18, 10, 'rgba(199,233,220,0.55)', 'left', 600);
+      if (park.name) drawText(park.name, park.x + 10, park.y + 18, 10, 'rgba(199,233,220,0.55)', 'left', 600);
     }
   }
 
-  function drawTrafficCar(car, isPlayer = false) {
+  // ---------------------------------------------------------------- people and vehicles
+
+  function drawVehicle(car, isPlayer = false) {
     if (!car.destroyed && Math.abs(car.speed) > 42) {
       const travel = Math.abs(car.speed);
       ctx.save();
@@ -432,7 +441,7 @@ export function createRenderer(canvas) {
     ctx.fillStyle = 'rgba(0,0,0,0.45)';
     ctx.fillRect(-car.length / 2 + 5, -car.width / 2 + 5, car.length, car.width);
     // Body.
-    ctx.fillStyle = car.type === 'tern' ? '#e8e4d2' : car.playerOwned ? shade(spec.color, 14) : spec.color;
+    ctx.fillStyle = car.type === 'tern' ? '#e8e4d2' : car.playerOwned ? shadeHex(spec.color, 14) : spec.color;
     ctx.fillRect(-car.length / 2, -car.width / 2, car.length, car.width);
     ctx.fillStyle = 'rgba(255,255,255,0.08)';
     ctx.fillRect(-car.length / 2 + 3, -car.width / 2 + 2, car.length - 6, 3);
@@ -500,7 +509,7 @@ export function createRenderer(canvas) {
     ctx.stroke();
   }
 
-  function drawPed(ped) {
+  function drawPedestrian(ped) {
     ctx.save();
     ctx.translate(ped.x, ped.y);
     if (ped.dead) {
@@ -541,7 +550,7 @@ export function createRenderer(canvas) {
     ctx.restore();
   }
 
-  function drawPlayer(player, state) {
+  function drawVale(player, state) {
     if (player.vehicle) return;
     ctx.save();
     ctx.translate(player.x, player.y);
@@ -581,7 +590,7 @@ export function createRenderer(canvas) {
     }
   }
 
-  function drawPoliceGlow(unit) {
+  function drawSirenReflection(unit) {
     if (unit.destroyed || unit.kind !== 'police') return;
     const phase = Math.sin(time * 10 + (unit.sirenPhase || 0));
     const red = phase > 0;
@@ -610,12 +619,12 @@ export function createRenderer(canvas) {
     ctx.restore();
   }
 
-  function drawPolice(unit) {
+  function drawPoliceUnit(unit) {
     if (unit.destroyed) {
-      if (unit.kind === 'police') drawTrafficCar(unit, false);
+      if (unit.kind === 'police') drawVehicle(unit, false);
       return;
     }
-    if (unit.kind === 'police') { drawTrafficCar(unit, false); return; }
+    if (unit.kind === 'police') { drawVehicle(unit, false); return; }
     ctx.save();
     ctx.translate(unit.x, unit.y);
     ctx.rotate(unit.angle + Math.PI / 2);
@@ -631,7 +640,7 @@ export function createRenderer(canvas) {
     ctx.restore();
   }
 
-  function drawActors(state) {
+  function drawMissionActors(state) {
     for (let index = 0; index < state.missionActors.length; index += 1) {
       const actor = state.missionActors[index];
       if (actor.dead) {
@@ -664,7 +673,9 @@ export function createRenderer(canvas) {
     }
   }
 
-  function drawBullets(state) {
+  // ---------------------------------------------------------------- combat, markers and ground effects
+
+  function drawShotsAndParticles(state) {
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
     for (let index = 0; index < state.bullets.length; index += 1) {
@@ -716,7 +727,7 @@ export function createRenderer(canvas) {
     ctx.restore();
   }
 
-  function drawMarker(state) {
+  function drawMissionMarker(state) {
     const marker = state.missionMarker;
     if (!marker) return;
     const pulse = (Math.sin(time * 3.4) + 1) * 0.5;
@@ -738,7 +749,7 @@ export function createRenderer(canvas) {
     ctx.restore();
   }
 
-  function drawGroundEffects(state) {
+  function drawRoadEffects(state) {
     // Rubber laid down by drifts, painted before every car so it reads as asphalt history.
     ctx.save();
     for (let index = 0; index < state.skids.length; index += 1) {
@@ -766,10 +777,10 @@ export function createRenderer(canvas) {
     }
     ctx.restore();
 
-    for (let index = 0; index < state.police.length; index += 1) drawPoliceGlow(state.police[index]);
+    for (let index = 0; index < state.police.length; index += 1) drawSirenReflection(state.police[index]);
   }
 
-  function drawExhaust(state) {
+  function drawExhaustPuffs(state) {
     ctx.save();
     ctx.globalCompositeOperation = 'screen';
     for (let index = 0; index < state.exhaust.length; index += 1) {
@@ -782,7 +793,7 @@ export function createRenderer(canvas) {
     ctx.restore();
   }
 
-  function drawStreetlights(city, state) {
+  function drawStreetLampGlow(city, state) {
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
     for (let index = 0; index < city.lamps.length; index += 1) {
@@ -799,12 +810,16 @@ export function createRenderer(canvas) {
     ctx.restore();
   }
 
-  function drawRain(state, strength = 1) {
+  // ---------------------------------------------------------------- weather and full-world composition
+
+  function drawRainOverlay(state, strength = 1) {
     ctx.save();
     ctx.setTransform(view.scale, 0, 0, view.scale, view.x, view.y);
+    ctx.globalAlpha = clamp(strength, 0, 1);
     ctx.strokeStyle = PALETTE.rain;
     ctx.lineWidth = 1;
     ctx.beginPath();
+    // A single path keeps 145 drops cheap; the modulo wraps them across the full viewport.
     for (let index = 0; index < RAIN_COUNT; index += 1) {
       const drop = rain[index];
       const x = (drop.x + time * (drop.speed * 0.22) + drop.layer * 19) % 1320 - 20;
@@ -822,38 +837,38 @@ export function createRenderer(canvas) {
     ctx.restore();
   }
 
-  function drawWorld(state) {
+  function drawWorldFrame(state) {
     const city = state.city;
     worldTransform(state);
-    drawWater(city);
-    drawRoads(city);
-    drawWetReflections(city, state);
-    drawDock(city);
-    drawParks(city);
+    drawHarbourWater(city);
+    drawStreetGrid(city);
+    drawNeonReflections(city, state);
+    drawDockyard(city);
+    drawParkBlocks(city);
     for (let index = 0; index < city.buildings.length; index += 1) drawBuilding(city.buildings[index], state);
-    for (let index = 0; index < city.signs.length; index += 1) drawSign(city.signs[index]);
-    drawStreetlights(city, state);
-    drawGroundEffects(state);
-    drawExhaust(state);
-    drawActors(state);
+    for (let index = 0; index < city.signs.length; index += 1) drawNeonSign(city.signs[index]);
+    drawStreetLampGlow(city, state);
+    drawRoadEffects(state);
+    drawExhaustPuffs(state);
+    drawMissionActors(state);
     const px = state.player.vehicle ? state.player.vehicle.x : state.player.x;
     const py = state.player.vehicle ? state.player.vehicle.y : state.player.y;
     for (let index = 0; index < state.peds.length; index += 1) {
       const ped = state.peds[index];
       if (ped === state.player || ped.x === state.player.x && ped.y === state.player.y) continue;
       if (Math.abs(ped.x - px) < 24 && Math.abs(ped.y - py) < 24) continue;
-      drawPed(ped);
+      drawPedestrian(ped);
     }
     for (let index = 0; index < state.traffic.length; index += 1) {
       const car = state.traffic[index];
-      drawTrafficCar(car, car === state.player.vehicle);
+      drawVehicle(car, car === state.player.vehicle);
     }
-    for (let index = 0; index < state.police.length; index += 1) drawPolice(state.police[index]);
-    drawPlayer(state.player, state);
-    drawMarker(state);
-    drawBullets(state);
+    for (let index = 0; index < state.police.length; index += 1) drawPoliceUnit(state.police[index]);
+    drawVale(state.player, state);
+    drawMissionMarker(state);
+    drawShotsAndParticles(state);
     ctx.restore();
-    drawRain(state);
+    drawRainOverlay(state);
     // Vignette and a wet cyan haze lift the whole frame off pure black.
     ctx.setTransform(view.scale, 0, 0, view.scale, view.x, view.y);
     const vignette = ctx.createRadialGradient(640, 360, 180, 640, 360, 740);
@@ -868,7 +883,9 @@ export function createRenderer(canvas) {
     }
   }
 
-  function drawCompass(state) {
+  // ---------------------------------------------------------------- HUD panels and screens
+
+  function drawCompassHud(state) {
     const cx = FIELD.width - 112;
     const cy = 118;
     ctx.save();
@@ -885,11 +902,11 @@ export function createRenderer(canvas) {
       ctx.fillStyle = PALETTE.marker;
       ctx.beginPath(); ctx.moveTo(31, 0); ctx.lineTo(19, -7); ctx.lineTo(19, 7); ctx.closePath(); ctx.fill();
       ctx.rotate(-angle);
-      text('JOB', 0, 3, 10, '#ffdf9b', 'center', 700);
+      drawText('JOB', 0, 3, 10, '#ffdf9b', 'center', 700);
     } else {
       ctx.fillStyle = PALETTE.muted;
       ctx.beginPath(); ctx.moveTo(0, -30); ctx.lineTo(-5, -18); ctx.lineTo(5, -18); ctx.closePath(); ctx.fill();
-      text('N', 0, 15, 11, PALETTE.text, 'center', 700);
+      drawText('N', 0, 15, 11, PALETTE.text, 'center', 700);
     }
     ctx.restore();
   }
@@ -899,7 +916,7 @@ export function createRenderer(canvas) {
     const x = FIELD.width - size - 22;
     const y = 144;
     const radius = 640;
-    panel(x - 8, y - 8, size + 16, size + 16, 'rgba(5,10,17,0.8)', 'rgba(100,225,232,0.34)');
+    drawPanel(x - 8, y - 8, size + 16, size + 16, 'rgba(5,10,17,0.8)', 'rgba(100,225,232,0.34)');
     drawCornerTicks(ctx, x - 8, y - 8, size + 16, size + 16, 'rgba(100,225,232,0.52)');
     ctx.save();
     ctx.beginPath();
@@ -943,56 +960,56 @@ export function createRenderer(canvas) {
     // North/compass seam.
     ctx.strokeStyle = 'rgba(100,225,232,0.24)';
     ctx.beginPath(); ctx.moveTo(x + size / 2, y); ctx.lineTo(x + size / 2, y + 10); ctx.stroke();
-    text('PORT KESSEL', x + 10, y + size + 15, 9, 'rgba(180,224,226,0.65)', 'left', 700);
+    drawText('PORT KESSEL', x + 10, y + size + 15, 9, 'rgba(180,224,226,0.65)', 'left', 700);
   }
 
   function drawHud(state, world) {
     ctx.setTransform(view.scale, 0, 0, view.scale, view.x, view.y);
     // Top-left: brand, district and 12-hour clock.
-    panel(20, 20, 330, 92, 'rgba(5,10,18,0.78)', 'rgba(57,233,237,0.28)');
-    text('NEON HARBOR', 38, 47, 20, '#dff9fa', 'left', 700, DISPLAY_FONT);
-    text('PORT KESSEL', 236, 46, 10, PALETTE.neonCyan, 'left', 700);
+    drawPanel(20, 20, 330, 92, 'rgba(5,10,18,0.78)', 'rgba(57,233,237,0.28)');
+    drawText('NEON HARBOR', 38, 47, 20, '#dff9fa', 'left', 700, DISPLAY_FONT);
+    drawText('PORT KESSEL', 236, 46, 10, PALETTE.neonCyan, 'left', 700);
     ctx.fillStyle = 'rgba(57,233,237,0.5)'; ctx.fillRect(38, 56, 294, 1);
-    text(state.district.toUpperCase(), 38, 79, 16, '#b6d1d6', 'left', 600);
-    text(world.getClock(), 38, 100, 13, '#ffcf4a', 'left', 500);
-    text(`$${state.money.toLocaleString()}`, 333, 100, 13, '#ffcf4a', 'right', 600);
-    // Wanted block.
-    text('DIVISION WATCH', 22, 137, 10, PALETTE.muted, 'left', 700);
+    drawText(state.district.toUpperCase(), 38, 79, 16, '#b6d1d6', 'left', 600);
+    drawText(world.getClock(), 38, 100, 13, '#ffcf4a', 'left', 500);
+    drawText(`$${state.money.toLocaleString()}`, 333, 100, 13, '#ffcf4a', 'right', 600);
+    // Division watch: five fixed stars keep the wanted state legible even at zero.
+    drawText('DIVISION WATCH', 22, 137, 10, PALETTE.muted, 'left', 700);
     drawWantedStars(ctx, 24, 158, state.wanted);
     if (state.wanted > 0) {
       const label = WANTED.stars[state.wanted].toUpperCase();
-      text(state.policeSight ? 'SEEN · ' + label : 'COLD · ' + label, 152, 161, 10, state.policeSight ? '#ff9cac' : '#9fb9c0', 'left', 700);
+      drawText(state.policeSight ? 'SEEN · ' + label : 'COLD · ' + label, 152, 161, 10, state.policeSight ? '#ff9cac' : '#9fb9c0', 'left', 700);
     }
-    drawCompass(state);
+    drawCompassHud(state);
     drawMinimap(state);
 
     // Bottom-left health and armour.
     const hudY = FIELD.height - 142;
-    panel(20, hudY, 335, 120, 'rgba(5,10,18,0.82)', 'rgba(57,233,237,0.27)');
-    text('VALE', 38, hudY + 28, 15, '#eaf8f9', 'left', 700);
-    text(state.weapon === 'pistol' ? 'ARMED · SILENT' : 'UNARMED', 38, hudY + 45, 9, PALETTE.muted, 'left', 600);
+    drawPanel(20, hudY, 335, 120, 'rgba(5,10,18,0.82)', 'rgba(57,233,237,0.27)');
+    drawText('VALE', 38, hudY + 28, 15, '#eaf8f9', 'left', 700);
+    drawText(state.weapon === 'pistol' ? 'ARMED · SILENT' : 'UNARMED', 38, hudY + 45, 9, PALETTE.muted, 'left', 600);
     drawMeter(ctx, 38, hudY + 55, 228, 10, state.player.health / 100, state.player.health > 32 ? PALETTE.health : PALETTE.danger);
     drawMeter(ctx, 38, hudY + 73, 228, 7, state.player.armour / 75, PALETTE.armour);
-    text(`${Math.ceil(state.player.health)}`, 316, hudY + 64, 14, '#dff9fa', 'right', 700);
-    text(`${Math.ceil(state.player.armour)}`, 316, hudY + 80, 11, '#a8d9e6', 'right', 600);
-    text('HEALTH', 264, hudY + 96, 8, PALETTE.muted, 'left', 700);
-    text('ARMOUR', 189, hudY + 96, 8, PALETTE.muted, 'left', 700);
+    drawText(`${Math.ceil(state.player.health)}`, 316, hudY + 64, 14, '#dff9fa', 'right', 700);
+    drawText(`${Math.ceil(state.player.armour)}`, 316, hudY + 80, 11, '#a8d9e6', 'right', 600);
+    drawText('HEALTH', 264, hudY + 96, 8, PALETTE.muted, 'left', 700);
+    drawText('ARMOUR', 189, hudY + 96, 8, PALETTE.muted, 'left', 700);
     // Weapon card.
-    panel(370, hudY, 188, 120, 'rgba(5,10,18,0.82)', 'rgba(57,233,237,0.27)');
+    drawPanel(370, hudY, 188, 120, 'rgba(5,10,18,0.82)', 'rgba(57,233,237,0.27)');
     const weapon = WEAPONS[state.weapon] || WEAPONS.fists;
-    text('WEAPON', 388, hudY + 27, 9, PALETTE.muted, 'left', 700);
-    text(weapon.name, 388, hudY + 48, 19, state.weapon === 'pistol' ? '#ffcf4a' : '#dff9fa', 'left', 700, DISPLAY_FONT);
-    text(state.weapon === 'pistol' ? `${state.pistolRounds} ROUNDS` : 'MELEE', 388, hudY + 70, 11, '#a8c2c8', 'left', 600);
-    text(state.weapon === 'pistol' ? 'R RELOAD' : '1 FISTS · 2 PISTOL', 388, hudY + 94, 9, PALETTE.muted, 'left', 600);
+    drawText('WEAPON', 388, hudY + 27, 9, PALETTE.muted, 'left', 700);
+    drawText(weapon.name, 388, hudY + 48, 19, state.weapon === 'pistol' ? '#ffcf4a' : '#dff9fa', 'left', 700, DISPLAY_FONT);
+    drawText(state.weapon === 'pistol' ? `${state.pistolRounds} ROUNDS` : 'MELEE', 388, hudY + 70, 11, '#a8c2c8', 'left', 600);
+    drawText(state.weapon === 'pistol' ? 'R RELOAD' : '1 FISTS · 2 PISTOL', 388, hudY + 94, 9, PALETTE.muted, 'left', 600);
     // Speedometer while driving.
     if (state.player.vehicle) {
       const car = state.player.vehicle;
       const speed = Math.round(Math.abs(car.speed) * 0.72);
-      panel(20, hudY - 68, 335, 58, 'rgba(5,10,18,0.8)', 'rgba(57,233,237,0.26)');
-      text('SPEED', 38, hudY - 50, 8, PALETTE.muted, 'left', 700);
-      text(`${speed}`, 38, hudY - 22, 30, '#ffcf4a', 'left', 700, DISPLAY_FONT);
-      text('KM/H', 119, hudY - 23, 10, PALETTE.muted, 'left', 700);
-      text(String(VEHICLE[car.type]?.name || 'Kestrel coupe').toUpperCase(), 190, hudY - 51, 7, '#9fb9c0', 'left', 700);
+      drawPanel(20, hudY - 68, 335, 58, 'rgba(5,10,18,0.8)', 'rgba(57,233,237,0.26)');
+      drawText('SPEED', 38, hudY - 50, 8, PALETTE.muted, 'left', 700);
+      drawText(`${speed}`, 38, hudY - 22, 30, '#ffcf4a', 'left', 700, DISPLAY_FONT);
+      drawText('KM/H', 119, hudY - 23, 10, PALETTE.muted, 'left', 700);
+      drawText(String(VEHICLE[car.type]?.name || 'Kestrel coupe').toUpperCase(), 190, hudY - 51, 7, '#9fb9c0', 'left', 700);
       const carHealth = clamp(car.health / (VEHICLE[car.type]?.health || 1), 0, 1);
       ctx.fillStyle = 'rgba(127,160,168,0.22)'; ctx.fillRect(214, hudY - 36, 121, 5);
       ctx.fillStyle = carHealth > 0.35 ? PALETTE.neonCyan : PALETTE.danger;
@@ -1000,20 +1017,20 @@ export function createRenderer(canvas) {
     }
     // Objective strip, right above the bottom edge, leaving most of the action clear.
     const objective = state.objective || (state.credits ? 'The story is over. The city is not.' : 'Explore Port Kessel');
-    panel(576, FIELD.height - 84, 660, 58, 'rgba(5,10,18,0.8)', 'rgba(255,207,74,0.27)');
-    text('OBJECTIVE', 596, FIELD.height - 62, 9, PALETTE.marker, 'left', 700);
-    text(objective.length > 82 ? objective.slice(0, 79) + '...' : objective, 596, FIELD.height - 40, 15, '#eaf8f9', 'left', 600);
+    drawPanel(576, FIELD.height - 84, 660, 58, 'rgba(5,10,18,0.8)', 'rgba(255,207,74,0.27)');
+    drawText('OBJECTIVE', 596, FIELD.height - 62, 9, PALETTE.marker, 'left', 700);
+    drawText(objective.length > 82 ? objective.slice(0, 79) + '...' : objective, 596, FIELD.height - 40, 15, '#eaf8f9', 'left', 600);
     if (state.missionMarker) {
       const px = state.player.vehicle ? state.player.vehicle.x : state.player.x;
       const py = state.player.vehicle ? state.player.vehicle.y : state.player.y;
       const metres = Math.round(Math.hypot(state.missionMarker.x - px, state.missionMarker.y - py));
-      text(`${metres} M`, 1108, FIELD.height - 62, 11, '#ffdf9b', 'right', 700);
+      drawText(`${metres} M`, 1108, FIELD.height - 62, 11, '#ffdf9b', 'right', 700);
     }
     if (state.mission !== null && state.mission < missionCount()) {
-      text(`${state.mission + 1}/${missionCount()}`, 1214, FIELD.height - 62, 11, PALETTE.marker, 'right', 700);
+      drawText(`${state.mission + 1}/${missionCount()}`, 1214, FIELD.height - 62, 11, PALETTE.marker, 'right', 700);
     }
     if (state.nearVehicle && !state.player.vehicle) {
-      text('F  TAKE '+ (VEHICLE[state.nearVehicle.type]?.name || 'CAR').toUpperCase(), 640, FIELD.height - 108, 12, '#ffcf4a', 'center', 700);
+      drawText('F  TAKE '+ (VEHICLE[state.nearVehicle.type]?.name || 'CAR').toUpperCase(), 640, FIELD.height - 108, 12, '#ffcf4a', 'center', 700);
     }
     // Dialogue sits directly above the objective strip, clear of the driver's horizon.
     if (state.hudDialogue) {
@@ -1022,19 +1039,19 @@ export function createRenderer(canvas) {
       const h = 78;
       const x = 664;
       const y = FIELD.height - 92 - h;
-      panel(x, y, w, h, 'rgba(6,11,18,0.9)', 'rgba(255,207,74,0.4)');
-      text(dialog.speaker, x + 18, y + 22, 10, PALETTE.marker, 'left', 700);
+      drawPanel(x, y, w, h, 'rgba(6,11,18,0.9)', 'rgba(255,207,74,0.4)');
+      drawText(dialog.speaker, x + 18, y + 22, 10, PALETTE.marker, 'left', 700);
       const words = dialog.text.split(' ');
       let line = '';
       let lineIndex = 0;
       for (let index = 0; index < words.length; index += 1) {
         const test = line ? line + ' ' + words[index] : words[index];
         if (test.length > 60 && lineIndex < 2) {
-          text(line, x + 18, y + 42 + lineIndex * 16, 12, '#d3e6e7', 'left', 500);
+          drawText(line, x + 18, y + 42 + lineIndex * 16, 12, '#d3e6e7', 'left', 500);
           line = words[index]; lineIndex += 1;
         } else line = test;
       }
-      if (lineIndex < 3) text(line, x + 18, y + 42 + lineIndex * 16, 12, '#d3e6e7', 'left', 500);
+      if (lineIndex < 3) drawText(line, x + 18, y + 42 + lineIndex * 16, 12, '#d3e6e7', 'left', 500);
     }
     if (state.flash > 0) {
       ctx.fillStyle = `rgba(255, 44, 68, ${Math.min(0.18, state.flash)})`;
@@ -1043,14 +1060,14 @@ export function createRenderer(canvas) {
     if (state.message) {
       ctx.fillStyle = 'rgba(4,9,15,0.74)';
       ctx.fillRect(442, 26, 396, 28);
-      text(state.message, 640, 45, 12, '#dbeeee', 'center', 500);
+      drawText(state.message, 640, 45, 12, '#dbeeee', 'center', 500);
     }
     if (state.dead) {
       ctx.fillStyle = 'rgba(8,3,7,0.52)';
       ctx.fillRect(0, 0, FIELD.width, FIELD.height);
-      text('FLATLINED', 640, 330, 54, '#ff526b', 'center', 700, DISPLAY_FONT);
-      text('St. Orra Hospital is expecting you.', 640, 362, 15, '#d8e8ea', 'center', 500);
-      text(`Care fee: $${Math.min(state.money, 220)}`, 640, 390, 12, PALETTE.muted, 'center', 600);
+      drawText('FLATLINED', 640, 330, 54, '#ff526b', 'center', 700, DISPLAY_FONT);
+      drawText('St. Orra Hospital is expecting you.', 640, 362, 15, '#d8e8ea', 'center', 500);
+      drawText(`Care fee: $${Math.min(state.money, 220)}`, 640, 390, 12, PALETTE.muted, 'center', 600);
     }
     drawCrosshair(state);
   }
@@ -1086,7 +1103,7 @@ export function createRenderer(canvas) {
     right.addColorStop(0, 'rgba(3,8,14,0)');
     right.addColorStop(1, 'rgba(3,8,14,0.56)');
     ctx.fillStyle = right; ctx.fillRect(940, 0, 340, 720);
-    // Neon signage panel.
+    // Neon signage drawPanel.
     ctx.save();
     ctx.translate(76, 76);
     ctx.shadowColor = PALETTE.neonPink; ctx.shadowBlur = 22;
@@ -1094,13 +1111,13 @@ export function createRenderer(canvas) {
     ctx.strokeRect(0, 0, 474, 274);
     ctx.shadowBlur = 0;
     ctx.fillStyle = 'rgba(6,14,22,0.7)'; ctx.fillRect(2, 2, 470, 270);
-    text('PORT KESSEL', 26, 38, 13, PALETTE.neonCyan, 'left', 700, DISPLAY_FONT);
+    drawText('PORT KESSEL', 26, 38, 13, PALETTE.neonCyan, 'left', 700, DISPLAY_FONT);
     ctx.shadowColor = PALETTE.neonCyan; ctx.shadowBlur = 28;
-    text('NEON', 22, 129, 82, '#e9ffff', 'left', 700, DISPLAY_FONT);
+    drawText('NEON', 22, 129, 82, '#e9ffff', 'left', 700, DISPLAY_FONT);
     ctx.shadowColor = PALETTE.neonPink;
-    text('HARBOR', 22, 203, 82, '#ff8bbd', 'left', 700, DISPLAY_FONT);
+    drawText('HARBOR', 22, 203, 82, '#ff8bbd', 'left', 700, DISPLAY_FONT);
     ctx.shadowBlur = 0;
-    text('AN OPEN-WORLD CRIME STORY', 27, 242, 12, '#a8c5ca', 'left', 600);
+    drawText('AN OPEN-WORLD CRIME STORY', 27, 242, 12, '#a8c5ca', 'left', 600);
     ctx.fillStyle = PALETTE.marker; ctx.fillRect(25, 252, 92, 2);
     ctx.restore();
     // Menu.
@@ -1115,23 +1132,23 @@ export function createRenderer(canvas) {
       ctx.fillStyle = selected ? 'rgba(255,207,74,0.16)' : 'rgba(5,10,18,0.66)';
       ctx.fillRect(76, y - 24, 344, 32);
       if (selected) { ctx.fillStyle = PALETTE.marker; ctx.fillRect(76, y - 24, 3, 32); }
-      text(items[index][0], 94, y - 2, 17, selected ? '#fff1ba' : '#b9cfd3', 'left', 700);
-      text(items[index][1], 394, y - 2, 11, selected ? PALETTE.marker : PALETTE.muted, 'right', 700);
+      drawText(items[index][0], 94, y - 2, 17, selected ? '#fff1ba' : '#b9cfd3', 'left', 700);
+      drawText(items[index][1], 394, y - 2, 11, selected ? PALETTE.marker : PALETTE.muted, 'right', 700);
     }
-    text('ENTER / CLICK  SELECT      ESC  PAUSE', 76, 580, 10, PALETTE.muted, 'left', 600);
-    text('WASD MOVE · MOUSE AIM / FIRE · SHIFT SPRINT', 76, 600, 10, PALETTE.muted, 'left', 600);
-    text('F ENTER / EXIT CAR · R RELOAD · M SAVE', 76, 620, 10, PALETTE.muted, 'left', 600);
-    text('Vale watches the rain. Marrow watches Vale.', 76, 642, 11, 'rgba(199,226,226,0.68)', 'left', 500);
+    drawText('ENTER / CLICK  SELECT      ESC  PAUSE', 76, 580, 10, PALETTE.muted, 'left', 600);
+    drawText('WASD MOVE · MOUSE AIM / FIRE · SHIFT SPRINT', 76, 600, 10, PALETTE.muted, 'left', 600);
+    drawText('F ENTER / EXIT CAR · R RELOAD · M SAVE', 76, 620, 10, PALETTE.muted, 'left', 600);
+    drawText('Vale watches the rain. Marrow watches Vale.', 76, 642, 11, 'rgba(199,226,226,0.68)', 'left', 500);
     // Lower-right live framing note, not a control hint.
-    text('LIVE FROM LANTERN WARD', 1204, 680, 9, 'rgba(185,224,224,0.54)', 'right', 700);
+    drawText('LIVE FROM LANTERN WARD', 1204, 680, 9, 'rgba(185,224,224,0.54)', 'right', 700);
   }
 
   function drawPause(state) {
     ctx.setTransform(view.scale, 0, 0, view.scale, view.x, view.y);
     ctx.fillStyle = 'rgba(2,6,12,0.68)'; ctx.fillRect(0, 0, FIELD.width, FIELD.height);
-    panel(418, 186, 444, 350, 'rgba(6,11,18,0.94)', 'rgba(57,233,237,0.52)');
-    text('PAUSED', 640, 242, 38, '#e9ffff', 'center', 700, DISPLAY_FONT);
-    text('PORT KESSEL KEEPS RAINING', 640, 267, 10, PALETTE.neonCyan, 'center', 700);
+    drawPanel(418, 186, 444, 350, 'rgba(6,11,18,0.94)', 'rgba(57,233,237,0.52)');
+    drawText('PAUSED', 640, 242, 38, '#e9ffff', 'center', 700, DISPLAY_FONT);
+    drawText('PORT KESSEL KEEPS RAINING', 640, 267, 10, PALETTE.neonCyan, 'center', 700);
     ctx.fillStyle = 'rgba(57,233,237,0.3)'; ctx.fillRect(460, 283, 360, 1);
     const rows = [
       ['M', 'SAVE GAME'],
@@ -1141,11 +1158,11 @@ export function createRenderer(canvas) {
     ];
     for (let index = 0; index < rows.length; index += 1) {
       const y = 326 + index * 38;
-      text(rows[index][0], 486, y, 13, PALETTE.marker, 'left', 700);
-      text(rows[index][1], 548, y, 15, index === 0 ? '#e9ffff' : '#bfd3d6', 'left', 500);
+      drawText(rows[index][0], 486, y, 13, PALETTE.marker, 'left', 700);
+      drawText(rows[index][1], 548, y, 15, index === 0 ? '#e9ffff' : '#bfd3d6', 'left', 500);
     }
-    text(state.saveNotice || 'The city holds its breath.', 640, 510, 11, PALETTE.muted, 'center', 500);
-    text('WASD · MOUSE · F · R · SHIFT', 640, 552, 9, 'rgba(174,207,210,0.6)', 'center', 600);
+    drawText(state.saveNotice || 'The city holds its breath.', 640, 510, 11, PALETTE.muted, 'center', 500);
+    drawText('WASD · MOUSE · F · R · SHIFT', 640, 552, 9, 'rgba(174,207,210,0.6)', 'center', 600);
   }
 
   function drawCredits(state) {
@@ -1173,14 +1190,16 @@ export function createRenderer(canvas) {
     let y = 660 - scroll;
     for (let index = 0; index < lines.length; index += 1) {
       const line = lines[index];
-      if (line[1] > 10) text(line[0], 640, y, line[1], line[2], 'center', line[1] > 30 ? 700 : 500, line[1] > 30 ? DISPLAY_FONT : FONT);
+      if (line[1] > 10) drawText(line[0], 640, y, line[1], line[2], 'center', line[1] > 30 ? 700 : 500, line[1] > 30 ? DISPLAY_FONT : FONT);
       y += line[1] + 16;
     }
     if (state.creditsTimer > 20) {
       ctx.fillStyle = 'rgba(2,6,12,0.4)'; ctx.fillRect(0, 590, FIELD.width, 130);
-      text('ESC  RETURN TO THE HARBOUR', 640, 664, 11, PALETTE.muted, 'center', 700);
+      drawText('ESC  RETURN TO THE HARBOUR', 640, 664, 11, PALETTE.muted, 'center', 700);
     }
   }
+
+  // ---------------------------------------------------------------- frame entry point
 
   function draw(state, world, screen) {
     time += 1 / 60;
@@ -1190,7 +1209,7 @@ export function createRenderer(canvas) {
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.save();
     ctx.scale(ratio, ratio);
-    drawWorld(state);
+    drawWorldFrame(state);
     ctx.restore();
     if (screen !== SCREEN.title) drawHud(state, world);
     if (screen === SCREEN.title) drawTitle(state, world, world.hasSave());

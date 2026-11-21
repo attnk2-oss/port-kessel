@@ -1,6 +1,6 @@
 // Radio 9 is a tiny, always-on city service: it announces the district Vale enters and the
 // division's current wanted response, and exposes one short line for the HUD ticker. It owns no
-// timers that can stall play; it only notices state changes the simulation has already made.
+// timers that can stall play; it only reports state changes the simulation has already made.
 
 import { WANTED } from './config.js';
 
@@ -26,7 +26,8 @@ export function createRadio() {
     pulse = 1;
   }
 
-  function sync(state) {
+  // Refresh the ticker without changing which district/level it will compare against next time.
+  function syncTicker(state) {
     if (!state.radio) state.radio = { station: STATION, line: '', pulse: 0 };
     state.radio.station = STATION;
     state.radio.line = responseLine(state);
@@ -40,11 +41,11 @@ export function createRadio() {
     state.radio.pulse = Math.max(0, state.radio.pulse - dt * 1.8);
     if (state.district !== lastDistrict || state.wanted !== lastWanted) {
       pulse = 1;
-      sync(state);
+      syncTicker(state);
       state.radio.pulse = pulse;
     }
     pulse = Math.max(0, pulse - dt * 1.8);
   }
 
-  return { reset, sync, update, station: STATION };
+  return { reset, sync: syncTicker, update, station: STATION };
 }

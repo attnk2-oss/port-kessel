@@ -1,6 +1,6 @@
 // Three repeatable courier drops, deliberately smaller than Marrow's story jobs. A cyan marker
 // appears on the minimap as soon as Vale steps outside; reaching it pays cash, then the next
-// drop opens after a short radio pause. The system touches only money, messages and its marker.
+// drop opens after a short pause. This system touches only money, messages and its marker.
 
 import { distanceSq } from './random.js';
 
@@ -11,28 +11,29 @@ const DROPS = [
 ];
 
 export function createSideJobs() {
-  let index = 0;
+  let nextIndex = 0;
   let cooldown = 0;
 
-  function arm(state) {
-    const drop = DROPS[index % DROPS.length];
-    state.sideJob = { ...drop, kind: 'courier', index: index % DROPS.length };
+  function armNextDrop(state) {
+    const drop = DROPS[nextIndex % DROPS.length];
+    state.sideJob = { ...drop, kind: 'courier', index: nextIndex % DROPS.length };
     state.radioHush = 0;
   }
 
   function reset(state) {
-    index = 0;
+    nextIndex = 0;
     cooldown = 0;
     state.sideJobsDone = 0;
-    arm(state);
+    armNextDrop(state);
   }
 
   function update(state, dt) {
     if (!state.sideJob) {
       cooldown = Math.max(0, cooldown - dt);
-      if (cooldown <= 0) arm(state);
+      if (cooldown <= 0) armNextDrop(state);
       return;
     }
+    // A courier can be collected from a car as well as on foot.
     const px = state.player.vehicle ? state.player.vehicle.x : state.player.x;
     const py = state.player.vehicle ? state.player.vehicle.y : state.player.y;
     if (distanceSq(px, py, state.sideJob.x, state.sideJob.y) >= state.sideJob.r * state.sideJob.r) return;
@@ -42,7 +43,7 @@ export function createSideJobs() {
     state.message = `SIDE JOB PAID · $${paid} · Radio 9 has the next drop.`;
     state.messageTimer = 3.4;
     state.sideJob = null;
-    index += 1;
+    nextIndex += 1;
     cooldown = 9;
   }
 

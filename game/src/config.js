@@ -1,12 +1,14 @@
-// NEON HARBOR's tuning table. The simulation is authored for a fixed 1280x720 frame and a
-// 60 Hz clock; render coordinates are world metres, not screen pixels, until the camera applies
-// its transform. Every magic number that changes how the harbour feels belongs here.
+// NEON HARBOR's tuning table. The simulation uses a fixed 1280x720 logical frame and a 60 Hz
+// clock; world coordinates are metres, not screen pixels, until the camera transform is applied.
+// Group every number that changes the feel of the harbour here rather than burying it in systems.
 
+// Frame and persistence.
 export const FIELD = Object.freeze({ width: 1280, height: 720 });
 export const STEP = 1 / 60;
 export const STORAGE_KEY = 'neon-harbor.save.v1';
 export const SOUND_KEY = 'neon-harbor.sound';
 
+// The generated grid: nine blocks per axis, eight avenues and eight cross streets, and the quay.
 export const CITY = Object.freeze({
   blocksX: 9,
   blocksY: 9,
@@ -21,6 +23,7 @@ export const CITY = Object.freeze({
   blocks: 81,
 });
 
+// Vale on foot, plus the weapon speeds shared by the mission and police systems.
 export const PLAYER = Object.freeze({
   radius: 11,
   walk: 122,
@@ -42,6 +45,7 @@ export const PLAYER = Object.freeze({
 
 export const PLAYER_CAR = Object.freeze({ body: '#dfff3f', rim: '#071016', stripe: '#f6ffe0', marker: '#fff46b' });
 
+// The three vehicle archetypes: the coupe Vale starts in, the cargo van, and the division's Tern.
 export const VEHICLE = Object.freeze({
   kestrel: {
     name: 'Kestrel coupe', length: 75, width: 35, maxSpeed: 290, reverse: 92,
@@ -60,6 +64,7 @@ export const VEHICLE = Object.freeze({
   },
 });
 
+// Division response: sight radius, spawn ring, decay and the star labels shown on the HUD.
 export const WANTED = Object.freeze({
   max: 5,
   decayAfter: 9,
@@ -70,6 +75,7 @@ export const WANTED = Object.freeze({
   stars: ['clear', 'watch', 'pursuit', 'three stars', 'citywide', 'lockdown'],
 });
 
+// Civilian traffic density, lane offset and the palette used by ambient cars.
 export const TRAFFIC = Object.freeze({
   count: 38,
   laneOffset: 21,
@@ -82,6 +88,7 @@ export const TRAFFIC = Object.freeze({
   colors: ['#b54a54', '#d4b16d', '#547c8d', '#7d678d', '#b9b3a6', '#476d59', '#b77449'],
 });
 
+// Pedestrian density and the coat palette; the simulation uses these colours per seeded walker.
 export const PEDESTRIAN = Object.freeze({
   count: 58,
   walkSpeed: 34,
@@ -95,6 +102,7 @@ export const MISSION_START = Object.freeze({ x: 820, y: 1566 });
 export const HOSPITAL = Object.freeze({ x: 2266, y: 1916, name: 'St. Orra Hospital' });
 export const SAFEHOUSE = Object.freeze({ x: 820, y: 1566, name: 'Vale\'s room, Lantern Ward' });
 
+// One palette for the wet, neon-lit port. HUD colours are deliberately separate from world light.
 export const PALETTE = Object.freeze({
   void: '#05080f',
   asphalt: '#111a24',
@@ -129,20 +137,24 @@ export const PALETTE = Object.freeze({
 export const FONT = '"Arial Narrow", "Roboto Condensed", "Segoe UI", sans-serif';
 export const DISPLAY_FONT = '"Trebuchet MS", "Segoe UI", sans-serif';
 
+// Camera ease per mode; look-ahead keeps the road visible when Vale is driving.
 export const CAMERA = Object.freeze({ follow: 0.14, driveFollow: 0.09, lookAhead: 122, shakeDecay: 6.2 });
 
+// The nine district names indexed by block row and column.
 export const DISTRICT_NAMES = [
   ['Anchor Row', 'Kessel Exchange', 'Foundry North'],
   ['Lantern Ward', 'Neon Strip', 'Glass Quay'],
   ['Salt Market', 'Dockline', 'Container Mile'],
 ];
 
+// Sign copy and tube colours. The generator picks these by seeded random stream.
 export const NEON_SIGNS = [
   ['HOTEL', '#ff3e8f'], ['NOODLE', '#39e9ed'], ['PAWN', '#ffb24e'], ['KESSEL', '#9d7bff'],
   ['OPEN', '#ff526b'], ['RADIO 9', '#39e9ed'], ['MOTEL', '#ff3e8f'], ['BAIT', '#ffb24e'],
   ['TIDE', '#67f1c0'], ['JAZZ', '#9d7bff'], ['24H', '#39e9ed'], ['DOCK 7', '#ffb24e'],
 ];
 
+// Weapon cards shown on the HUD; the world uses the cooldown values directly.
 export const WEAPONS = Object.freeze({
   fists: { name: 'FISTS', rounds: Infinity, cooldown: PLAYER.fistCooldown },
   pistol: { name: 'PISTOL', rounds: 36, cooldown: PLAYER.pistolCooldown },

@@ -5,7 +5,8 @@
 import { PLAYER } from './config.js';
 import { distanceSq } from './random.js';
 
-const M = [
+// Each mission is a title, an intro radio line, ordered objective steps and a cash reward.
+const MISSIONS = [
   {
     id: 'tide-ledger',
     title: 'THE TIDE LEDGER',
@@ -213,33 +214,33 @@ const M = [
 
 export function createMissions(city, random) {
   function definition(index) {
-    return Number.isInteger(index) && index >= 0 && index < M.length ? M[index] : null;
+    return Number.isInteger(index) && index >= 0 && index < MISSIONS.length ? MISSIONS[index] : null;
   }
 
+  // Current objective record, or null when the chain is idle/finished.
   function objectiveFor(state) {
     if (state.mission === null) return null;
-    if (state.mission >= M.length) return null;
-    const mission = M[state.mission];
-    const step = mission.steps[state.missionStep];
-    return step || null;
+    if (state.mission >= MISSIONS.length) return null;
+    const mission = MISSIONS[state.mission];
+    return mission.steps[state.missionStep] || null;
   }
 
   function markerFor(state) {
-    if (state.mission === null || state.mission >= M.length || state.missionComplete) return null;
-    const mission = M[state.mission];
-    const step = mission.steps[state.missionStep];
-    if (!step) return null;
-    if (step.type === 'target') {
-      const actor = state.missionActors.find((item) => item.tag === step.tag && !item.dead);
+    if (state.mission === null || state.mission >= MISSIONS.length || state.missionComplete) return null;
+    const mission = MISSIONS[state.mission];
+    const objective = mission.steps[state.missionStep];
+    if (!objective) return null;
+    if (objective.type === 'target') {
+      const actor = state.missionActors.find((item) => item.tag === objective.tag && !item.dead);
       if (actor) return { x: actor.x, y: actor.y, r: 44, color: '#ffcf4a' };
       return null;
     }
-    if (step.type === 'kill') {
+    if (objective.type === 'kill') {
       const actor = state.missionActors.find((item) => item.kind === 'enemy' && !item.dead);
       if (actor) return { x: actor.x, y: actor.y, r: 44, color: '#ff526b' };
     }
-    const markerRadius = step.type === 'survive' ? 90 : step.r || 72;
-    return { x: step.x, y: step.y, r: markerRadius, color: '#ffcf4a' };
+    const markerRadius = objective.type === 'survive' ? 90 : objective.r || 72;
+    return { x: objective.x, y: objective.y, r: markerRadius, color: '#ffcf4a' };
   }
 
   function spawnActor(kind, x, y, tag, extra = {}) {
@@ -253,50 +254,56 @@ export function createMissions(city, random) {
     };
   }
 
-  function spawnForStep(state, step) {
+  // Actors are recreated for every objective so a previous fight cannot leak into the next one.
+  function spawnForObjective(state, objective) {
     state.missionActors = [];
-    if (step.type === 'target') {
-      const tag = step.tag || 'target';
-      state.missionActors.push(spawnActor('courier', step.x, step.y, tag, { chase: false, health: 40, maxHealth: 40 }));
+    if (objective.type === 'target') {
+      const tag = objective.tag || 'target';
+      state.missionActors.push(spawnActor('courier', objective.x, objective.y, tag, { chase: false, health: 40, maxHealth: 40 }));
     }
-    if (step.type === 'kill') {
-      const count = step.count || 3;
+    if (objective.type === 'kill') {
+      const count = objective.count || 3;
       for (let index = 0; index < count; index += 1) {
         const angle = (index / count) * Math.PI * 2;
-        const kind = M[state.mission]?.finale && index === 0 ? 'boss' : 'enemy';
-        state.missionActors.push(spawnActor(kind, step.x + Math.cos(angle) * 62, step.y + Math.sin(angle) * 62, kind === 'boss' ? 'okonkwo' : `crew-${index}`));
+        const kind = MISSIONS[state.mission]?.finale && index === 0 ? 'boss' : 'enemy';
+        state.missionActors.push(spawnActor(
+          kind,
+          objective.x + Math.cos(angle) * 62,
+          objective.y + Math.sin(angle) * 62,
+          kind === 'boss' ? 'okonkwo' : `crew-${index}`,
+        ));
       }
     }
   }
 
-  function announceStep(state, mission, index) {
-    const step = mission.steps[index];
-    state.hudDialogue = { speaker: mission.giver, text: step.dialogue || mission.intro, timer: 6.5 };
-    state.objective = step.text;
+  function announceObjective(state, mission, index) {
+    const objective = mission.steps[index];
+    state.hudDialogue = { speaker: mission.giver, text: objective.dialogue || mission.intro, timer: 6.5 };
+    state.objective = objective.text;
     state.missionMarker = markerFor(state);
-    spawnForStep(state, step);
+    spawnForObjective(state, objective);
     state.missionStepStart = state.time;
     state.surviveTimer = 0;
     state.lastForward = { x: state.player.x, y: state.player.y };
-    if (step.type === 'survive' && step.wanted) {
-      state.wanted = Math.max(state.wanted, step.wanted);
+    if (objective.type === 'survive' && objective.wanted) {
+      state.wanted = Math.max(state.wanted, objective.wanted);
     }
   }
 
   function begin(state, index) {
-    if (index < 0 || index >= M.length) return false;
+    if (index < 0 || index >= MISSIONS.length) return false;
     state.mission = index;
     state.missionStep = 0;
     state.missionComplete = false;
     state.credits = false;
     state.missionFinished = false;
-    state.hudDialogue = { speaker: 'MARROW', text: M[index].intro, timer: 8 };
-    announceStep(state, M[index], 0);
+    state.hudDialogue = { speaker: 'MARROW', text: MISSIONS[index].intro, timer: 8 };
+    announceObjective(state, MISSIONS[index], 0);
     return true;
   }
 
   function complete(state) {
-    const mission = M[state.mission];
+    const mission = MISSIONS[state.mission];
     state.money += mission.reward;
     state.hudDialogue = { speaker: mission.giver, text: `${mission.title} complete. $${mission.reward} wired.`, timer: 7 };
     state.missionComplete = true;
@@ -314,49 +321,50 @@ export function createMissions(city, random) {
   }
 
   function advance(state) {
-    const mission = M[state.mission];
-    const next = state.missionStep + 1;
+    const mission = MISSIONS[state.mission];
+    const nextIndex = state.missionStep + 1;
     if (state.missionStep >= mission.steps.length - 1) complete(state);
     else {
-      state.missionStep = next;
-      announceStep(state, mission, next);
+      state.missionStep = nextIndex;
+      announceObjective(state, mission, nextIndex);
       state.shake = Math.max(state.shake, 1.2);
     }
   }
 
   function update(state, dt) {
-    if (state.mission === null || state.mission >= M.length || state.missionComplete) {
+    if (state.mission === null || state.mission >= MISSIONS.length || state.missionComplete) {
+      // A short pause separates one completed job from the next offer.
       if (state.nextMissionTimer > 0) {
         state.nextMissionTimer -= dt;
-        if (state.nextMissionTimer <= 0 && state.mission + 1 < M.length) begin(state, state.mission + 1);
+        if (state.nextMissionTimer <= 0 && state.mission + 1 < MISSIONS.length) begin(state, state.mission + 1);
       }
       return;
     }
-    const mission = M[state.mission];
-    const step = mission.steps[state.missionStep];
-    if (!step) return;
+    const mission = MISSIONS[state.mission];
+    const objective = mission.steps[state.missionStep];
+    if (!objective) return;
     const player = state.player;
     const px = player.vehicle ? player.vehicle.x : player.x;
     const py = player.vehicle ? player.vehicle.y : player.y;
-    if (step.type === 'goto') {
-      if (distanceSq(px, py, step.x, step.y) < step.r * step.r) advance(state);
-    } else if (step.type === 'target') {
-      const target = state.missionActors.find((actor) => actor.tag === step.tag);
+    if (objective.type === 'goto') {
+      if (distanceSq(px, py, objective.x, objective.y) < objective.r * objective.r) advance(state);
+    } else if (objective.type === 'target') {
+      const target = state.missionActors.find((actor) => actor.tag === objective.tag);
       if (!target || target.dead) advance(state);
-    } else if (step.type === 'drive') {
-      if (player.vehicle && distanceSq(px, py, step.x, step.y) < step.r * step.r) advance(state);
-    } else if (step.type === 'survive') {
-      if (distanceSq(px, py, step.x, step.y) < step.r * step.r) state.surviveTimer += dt;
-      state.objective = `${step.text} (${Math.ceil(step.seconds - state.surviveTimer)}s)`;
-      if (state.surviveTimer >= step.seconds) advance(state);
-    } else if (step.type === 'kill') {
+    } else if (objective.type === 'drive') {
+      if (player.vehicle && distanceSq(px, py, objective.x, objective.y) < objective.r * objective.r) advance(state);
+    } else if (objective.type === 'survive') {
+      if (distanceSq(px, py, objective.x, objective.y) < objective.r * objective.r) state.surviveTimer += dt;
+      state.objective = `${objective.text} (${Math.ceil(objective.seconds - state.surviveTimer)}s)`;
+      if (state.surviveTimer >= objective.seconds) advance(state);
+    } else if (objective.type === 'kill') {
       const alive = state.missionActors.filter((actor) => actor.kind !== 'courier' && !actor.dead).length;
-      state.objective = `${step.text.replace(/\(\d+\/\d+\)/, '')} (${step.count - alive}/${step.count})`;
+      state.objective = `${objective.text.replace(/\(\d+\/\d+\)/, '')} (${objective.count - alive}/${objective.count})`;
       if (alive === 0) advance(state);
-    } else if (step.type === 'escape') {
-      if (distanceSq(px, py, step.x, step.y) < step.r * step.r) advance(state);
+    } else if (objective.type === 'escape') {
+      if (distanceSq(px, py, objective.x, objective.y) < objective.r * objective.r) advance(state);
     }
-    if (step.type !== 'kill') {
+    if (objective.type !== 'kill') {
       state.missionMarker = markerFor(state);
     }
     if (state.credits) state.creditsTimer += dt;
@@ -364,33 +372,32 @@ export function createMissions(city, random) {
 
   function missionBrief(state) {
     if (state.mission === null) return 'No active job';
-    if (state.mission >= M.length) return 'Port Kessel is quiet';
-    const mission = M[state.mission];
-    return `${mission.title} · ${state.mission + 1}/${M.length}`;
+    if (state.mission >= MISSIONS.length) return 'Port Kessel is quiet';
+    const mission = MISSIONS[state.mission];
+    return `${mission.title} · ${state.mission + 1}/${MISSIONS.length}`;
   }
 
-  function resume(state, index, step) {
+  function resume(state, index, stepIndex) {
     if (!begin(state, index)) return false;
-    const mission = M[index];
-    const safeStep = Math.max(0, Math.min(step, mission.steps.length - 1));
+    const mission = MISSIONS[index];
+    const safeStep = Math.max(0, Math.min(stepIndex, mission.steps.length - 1));
     state.missionStep = safeStep;
-    announceStep(state, mission, safeStep);
+    announceObjective(state, mission, safeStep);
     return true;
   }
 
-  return { definitions: M, definition, begin, resume, update, objectiveFor, markerFor, missionBrief };
+  return { definitions: MISSIONS, definition, begin, resume, update, objectiveFor, markerFor, missionBrief };
 }
 
 export function missionStepText(state) {
-  if (state.mission === null || state.mission >= M.length) return '';
-  const mission = M[state.mission];
-  return mission.steps[state.missionStep]?.text || '';
+  if (state.mission === null || state.mission >= MISSIONS.length) return '';
+  return MISSIONS[state.mission].steps[state.missionStep]?.text || '';
 }
 
 export function missionTitle(index) {
-  return M[index]?.title || '';
+  return MISSIONS[index]?.title || '';
 }
 
 export function missionCount() {
-  return M.length;
+  return MISSIONS.length;
 }

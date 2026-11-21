@@ -7,13 +7,13 @@ import { createServer } from 'node:http';
 import { extname, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const root = resolve(fileURLToPath(new URL('./game', import.meta.url)));
-const args = process.argv.slice(2);
-const portIndex = args.indexOf('--port');
-const requested = portIndex === -1 ? 8080 : Number(args[portIndex + 1]);
-const port = Number.isInteger(requested) && requested > 0 && requested < 65536 ? requested : 8080;
+const gameRoot = resolve(fileURLToPath(new URL('./game', import.meta.url)));
+const argumentsList = process.argv.slice(2);
+const portFlagIndex = argumentsList.indexOf('--port');
+const requestedPort = portFlagIndex === -1 ? 8080 : Number(argumentsList[portFlagIndex + 1]);
+const port = Number.isInteger(requestedPort) && requestedPort > 0 && requestedPort < 65536 ? requestedPort : 8080;
 
-const MIME: Record<string, string> = {
+const MIME_TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
   '.mjs': 'text/javascript; charset=utf-8',
@@ -37,7 +37,11 @@ const MIME: Record<string, string> = {
   '.txt': 'text/plain; charset=utf-8',
 };
 
-createServer((request, response) => {
+function pathInsideGame(pathname: string) {
+  return pathname === gameRoot || pathname.startsWith(gameRoot + sep);
+}
+
+const server = createServer((request, response) => {
   const url = new URL(request.url ?? '/', 'http://localhost');
   let pathname: string;
   try {
@@ -47,26 +51,30 @@ createServer((request, response) => {
     return;
   }
   if (pathname.endsWith('/')) pathname += 'index.html';
-  const file = resolve(join(root, normalize(pathname)));
-  if (file !== root && !file.startsWith(root + sep)) {
+  const filePath = resolve(join(gameRoot, normalize(pathname)));
+  if (!pathInsideGame(filePath)) {
     response.writeHead(403).end('forbidden');
     return;
   }
-  let size: number;
+
+  let fileSize: number;
   try {
-    const stats = statSync(file);
+    const stats = statSync(filePath);
     if (!stats.isFile()) throw new Error('not a file');
-    size = stats.size;
+    fileSize = stats.size;
   } catch {
     response.writeHead(404).end('not found');
     return;
   }
+
   response.writeHead(200, {
-    'content-type': MIME[extname(file).toLowerCase()] ?? 'application/octet-stream',
-    'content-length': size,
+    'content-type': MIME_TYPES[extname(filePath).toLowerCase()] ?? 'application/octet-stream',
+    'content-length': fileSize,
     'cache-control': 'no-store',
   });
-  createReadStream(file).pipe(response);
-}).listen(port, '127.0.0.1', () => {
+  createReadStream(filePath).pipe(response);
+});
+
+server.listen(port, '127.0.0.1', () => {
   console.log(`game/ is on http://localhost:${port}`);
 });

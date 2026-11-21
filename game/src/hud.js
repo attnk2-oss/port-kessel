@@ -6,9 +6,9 @@ import { PALETTE } from './config.js';
 export function drawWantedStars(ctx, x, y, count) {
   for (let index = 0; index < 5; index += 1) {
     const active = index < count;
-    const cx = x + index * 24;
+    const starX = x + index * 24;
     ctx.save();
-    ctx.translate(cx, y);
+    ctx.translate(starX, y);
     ctx.beginPath();
     for (let point = 0; point < 10; point += 1) {
       const angle = -Math.PI / 2 + point * Math.PI / 5;

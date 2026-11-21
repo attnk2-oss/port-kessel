@@ -30,26 +30,32 @@ export function createCity(seed) {
   const trees = [];
   const lots = [];
 
+  // Pass one: one block at a time, with parks and terminals taking the whole lot.
   for (let by = 0; by < CITY.blocksY; by += 1) {
     for (let bx = 0; bx < CITY.blocksX; bx += 1) {
       const x = blockLeft(bx);
       const y = blockTop(by);
-      const size = blockSize();
-      const district = DISTRICT_NAMES[Math.min(2, Math.floor(by / 3))][Math.min(2, Math.floor(bx / 3))];
+      const span = blockSize();
+      const districtName = DISTRICT_NAMES[Math.min(2, Math.floor(by / 3))][Math.min(2, Math.floor(bx / 3))];
       const kind = blockKind(bx, by);
-      const block = { bx, by, x, y, size, district, kind, index: blocks.length };
+      const block = { bx, by, x, y, size: span, district: districtName, kind, index: blocks.length };
       blocks.push(block);
       if (kind === 'park') {
-        const park = { x: x + 16, y: y + 12, w: size - 32, h: size - 24, bx, by, name: parkName(bx, by) };
+        const park = { x: x + 16, y: y + 12, w: span - 32, h: span - 24, bx, by, name: parkName(bx, by) };
         parks.push(park);
-        for (let t = 0; t < 8; t += 1) {
-          trees.push({ x: park.x + 18 + rand() * (park.w - 36), y: park.y + 18 + rand() * (park.h - 36), r: 9 + rand() * 8 });
+        for (let tree = 0; tree < 8; tree += 1) {
+          trees.push({
+            x: park.x + 18 + rand() * (park.w - 36),
+            y: park.y + 18 + rand() * (park.h - 36),
+            r: 9 + rand() * 8,
+          });
         }
         continue;
       }
       if (kind === 'terminal') {
-        const terminal = { x: x + 6, y: y + 6, w: size - 12, h: size - 12, bx, by };
+        const terminal = { x: x + 6, y: y + 6, w: span - 12, h: span - 12, bx, by };
         terminals.push(terminal);
+        // Container stacks fill terminal lots in a regular grid but keep seeded colours.
         for (let row = 0; row < 5; row += 1) {
           for (let col = 0; col < 6; col += 1) {
             lots.push({
@@ -62,33 +68,35 @@ export function createCity(seed) {
         }
         continue;
       }
+
+      // Ordinary blocks hold two or three buildings; slots are inset to leave lanes and alleys.
       const count = kind === 'plaza' ? 2 : 3;
       for (let slot = 0; slot < count; slot += 1) {
-        const cols = count === 3 ? 2 : 2;
+        const columns = 2;
         const rows = count === 3 ? 2 : 1;
-        const col = slot % cols;
-        const row = Math.floor(slot / cols);
+        const col = slot % columns;
+        const row = Math.floor(slot / columns);
         const gap = 12;
-        const w = (size - gap * (cols + 1)) / cols;
-        const h = (size - gap * (rows + 1)) / rows;
-        const bxPos = x + gap + col * (w + gap);
-        const byPos = y + gap + row * (h + gap);
-        const hInset = h * (0.28 + rand() * 0.42);
+        const w = (span - gap * (columns + 1)) / columns;
+        const h = (span - gap * (rows + 1)) / rows;
+        const left = x + gap + col * (w + gap);
+        const top = y + gap + row * (h + gap);
+        const frontInset = h * (0.28 + rand() * 0.42);
         const building = {
-          x: bxPos, y: byPos + hInset, w, h: h - hInset,
-          top: byPos + hInset * 0.18,
+          x: left, y: top + frontInset, w, h: h - frontInset,
+          top: top + frontInset * 0.18,
           height: 0.32 + rand() * 0.95 + (kind === 'plaza' ? 0.16 : 0),
-          district, kind,
+          district: districtName, kind,
           lit: rand(),
           windows: 4 + Math.floor(rand() * 4),
           rooftop: rand.pick(['ac', 'sign', 'tank', 'antenna']),
         };
         buildings.push(building);
         if (rand() < 0.72) {
-          const sign = rand.pick(NEON_SIGNS);
+          const neon = rand.pick(NEON_SIGNS);
           const vertical = rand() < 0.45;
           signs.push({
-            text: sign[0], color: sign[1],
+            text: neon[0], color: neon[1],
             x: building.x + w * (vertical ? rand.range(0.08, 0.7) : rand.range(0.16, 0.44)),
             y: building.y + (vertical ? rand.range(0.14, 0.45) : rand.range(0.12, 0.35)),
             vertical, scale: rand.range(0.72, 1.16), flicker: rand() * Math.PI * 2,
@@ -98,6 +106,7 @@ export function createCity(seed) {
     }
   }
 
+  // One lamp at every junction; the renderer culls them by the camera.
   for (let avenueIndex = 0; avenueIndex <= CITY.blocksX; avenueIndex += 1) {
     for (let crossIndex = 0; crossIndex <= CITY.blocksY; crossIndex += 1) {
       lamps.push({ x: avenue(avenueIndex), y: cross(crossIndex) });
@@ -121,6 +130,8 @@ export function createCity(seed) {
       angle: -0.34 + rand() * 0.2,
     });
   }
+
+  // Position-to-district lookup used by the HUD, radio and mission staging.
   const districtAt = (x, y) => {
     const bx = clamp(Math.floor((x - ORIGIN) / PITCH), 0, 8);
     const by = clamp(Math.floor((y - ORIGIN) / PITCH), 0, 8);
@@ -136,19 +147,19 @@ export function createCity(seed) {
     intersection(i, j) { return { x: avenue(i), y: cross(j) }; },
     isRoad(x, y) {
       if (y > DOCK_Y && y < WATER_Y) return true;
-      const ax = (x - ORIGIN + ROAD / 2) % PITCH;
-      const ay = (y - ORIGIN + ROAD / 2) % PITCH;
-      return ax >= 0 && ax < ROAD || ay >= 0 && ay < ROAD;
+      const avenueOffset = (x - ORIGIN + ROAD / 2) % PITCH;
+      const crossOffset = (y - ORIGIN + ROAD / 2) % PITCH;
+      return avenueOffset >= 0 && avenueOffset < ROAD || crossOffset >= 0 && crossOffset < ROAD;
     },
     isWater(x, y) { return y >= WATER_Y; },
     streetsNear(x, y, radius = 820) {
       const found = [];
       for (let by = 0; by < CITY.blocksY; by += 1) {
         for (let bx = 0; bx < CITY.blocksX; bx += 1) {
-          const cx = blockLeft(bx) + blockSize() / 2;
-          const cy = blockTop(by) + blockSize() / 2;
-          if (Math.abs(cx - x) < radius && Math.abs(cy - y) < radius) {
-            found.push({ x: cx, y: cy, block: blocks[by * CITY.blocksX + bx] });
+          const centerX = blockLeft(bx) + blockSize() / 2;
+          const centerY = blockTop(by) + blockSize() / 2;
+          if (Math.abs(centerX - x) < radius && Math.abs(centerY - y) < radius) {
+            found.push({ x: centerX, y: centerY, block: blocks[by * CITY.blocksX + bx] });
           }
         }
       }
@@ -176,6 +187,7 @@ export function createCity(seed) {
   };
 }
 
+// Hand-authored exceptions turn most of the grid into ordinary city blocks.
 function blockKind(bx, by) {
   if (by === 8 && bx >= 1 && bx <= 7) return 'terminal';
   if ((bx === 4 && by === 1) || (bx === 2 && by === 5)) return 'plaza';
@@ -188,4 +200,3 @@ function parkName(bx, by) {
   if (bx === 1 && by === 1) return 'Cormorant Green';
   return 'Tidewalk Garden';
 }
-
