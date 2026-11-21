@@ -109,7 +109,7 @@ function pauseMenu() {
   }
 }
 
-function handlePressed() {
+function applyPressedActions() {
   const pressed = input.takePressed();
   const clicks = input.takeClicks();
   if (screen === SCREEN.title) {
@@ -186,11 +186,11 @@ function stepGame(dt) {
   audio.update(world.state, dt);
 }
 
-function frame(now) {
-  requestAnimationFrame(frame);
+function runFrame(now) {
+  requestAnimationFrame(runFrame);
   const delta = Math.min(MAX_FRAME, (now - last) / 1000);
   last = now;
-  handlePressed();
+  applyPressedActions();
   if (screen === SCREEN.play || screen === SCREEN.title) {
     accumulator += delta;
     while (accumulator >= STEP) {
@@ -232,5 +232,5 @@ if (shotName) {
   world.state.camera.x = 1580;
   world.state.camera.y = 1460;
   announce('NEON HARBOR. Press Enter for New Game, or C to Continue.');
-  requestAnimationFrame(frame);
+  requestAnimationFrame(runFrame);
 }

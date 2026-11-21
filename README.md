@@ -25,10 +25,10 @@ out of a car, mouse to aim, click to fire, R to reload, Escape to pause.
 
 Four frames captured from the running game in headless Chrome, one per scene:
 
-- `screenshots/1-port-kessel.png` — on foot on the neon strip
-- `screenshots/2-the-drive.png` — at speed in a stolen Kestrel
-- `screenshots/3-three-stars.png` — three-star pursuit closing in
-- `screenshots/4-the-job.png` — a mission under way
+- `screenshots/1-three-stars.png` — three-star pursuit closing in (cover)
+- `screenshots/2-the-job.png` — a mission under way
+- `screenshots/3-the-drive.png` — at speed in a stolen Kestrel
+- `screenshots/4-port-kessel.png` — on foot on the neon strip
 
 Each is staged deterministically from a seed by `game/src/shots.js` and reachable at
 `index.html?shot=street|drive|chase|mission&seed=7`.
